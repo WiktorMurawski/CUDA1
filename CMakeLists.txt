@@ -1,8 +1,8 @@
-# CMake minimum version
+ # CMake minimum version
 cmake_minimum_required(VERSION 3.10)
 
 # Set project name and version
-project(ElectronsAndProtons VERSION 1.0)
+project(ElectronsAndProtons VERSION 1.0 LANGUAGES CXX CUDA)
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 17)
@@ -18,26 +18,31 @@ set(EXTERNAL_DIR ${CMAKE_SOURCE_DIR}/external)
 
 # Add include directories
 include_directories(${CMAKE_SOURCE_DIR}/include)
-#include_directories(${EXTERNAL_DIR}/glew/include)
 include_directories(${EXTERNAL_DIR}/glfw/include)
 
 # GLFW (ensure it builds automatically)
 add_subdirectory(${EXTERNAL_DIR}/glfw)
 
 # Enable CUDA
-find_package(CUDA REQUIRED)
+#find_package(CUDA REQUIRED)
+set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
 # Add include directories for CUDA
 include_directories(${CUDA_INCLUDE_DIRS})
 
-# Add executable for your project (including CUDA)
+# Add executables for projects
 add_executable(ElectronsAndProtons_CPU ${CMAKE_SOURCE_DIR}/ElectronsAndProtons_CPU/main.cpp)
+add_executable(ElectronsAndProtons_CUDA ${CMAKE_SOURCE_DIR}/ElectronsAndProtons_CUDA/main.cu)
 
-# Link libraries (GLFW, OpenGL, CUDA)
+# Link libraries
 target_link_libraries(ElectronsAndProtons_CPU PRIVATE
     glfw
     OpenGL::GL
-    ${CUDA_LIBRARIES}
+)
+target_link_libraries(ElectronsAndProtons_CUDA PRIVATE
+    glfw
+    OpenGL::GL
 )
 
 # For Linux, link to pthread
