@@ -11,7 +11,7 @@
 #define MINVAL 0.0f
 #define MAXVAL 1.0f
 
-// Convert [min, max] value → RGB (blue→red)
+// Convert [min, max] value → RGB (blue -> red)
 static void value_to_color(float value, float min, float max, unsigned char* r, unsigned char* g, unsigned char* b)
 {
     float t = (value - min) / (max - min);

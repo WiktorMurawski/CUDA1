@@ -24,7 +24,10 @@ include_directories(${EXTERNAL_DIR}/glfw/include)
 add_subdirectory(${EXTERNAL_DIR}/glfw)
 
 # Enable CUDA
-#find_package(CUDA REQUIRED)
+enable_language(CUDA)
+find_package(CUDAToolkit REQUIRED)
+
+# Set CUDA properties
 set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
@@ -43,6 +46,7 @@ target_link_libraries(ElectronsAndProtons_CPU PRIVATE
 target_link_libraries(ElectronsAndProtons_CUDA PRIVATE
     glfw
     OpenGL::GL
+    CUDA::cudart
 )
 
 # For Linux, link to pthread
