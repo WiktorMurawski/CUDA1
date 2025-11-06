@@ -87,7 +87,7 @@ cudaError_t addWithCuda(int* c, const int* a, const int* b, unsigned int size)
     CUDA_CHECK(cudaMemcpy(dev_b, b, size * sizeof(int), cudaMemcpyHostToDevice));
 
     // Launch kernel
-    addKernel << <1, size >> > (dev_c, dev_a, dev_b);
+    addKernel <<<1, size >>> (dev_c, dev_a, dev_b);
 
     // Check for any errors launching the kernel
     CUDA_CHECK(cudaGetLastError());

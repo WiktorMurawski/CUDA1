@@ -1,4 +1,8 @@
-﻿#include <GLFW/glfw3.h>
+﻿//#ifdef _WIN32
+//#include <windows.h>
+//#endif
+
+#include <GLFW/glfw3.h>
 #include <cstdlib>
 #include <cstdio>
 #include <ctime>
@@ -35,6 +39,7 @@ int main(void)
     if (!glfwInit()) {
         return -1;
     }
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     GLFWwindow* window = glfwCreateWindow(width, height, TITLE, nullptr, nullptr);
     if (!window)
     {
@@ -44,8 +49,6 @@ int main(void)
 
     glfwMakeContextCurrent(window);
     glOrtho(0, 1, 0, 1, -1, 1);
-    glPixelZoom(1.0f, -1.0f);
-    glRasterPos2f(0, 1);
 
     GLuint texture;
     glGenTextures(1, &texture);
@@ -63,7 +66,8 @@ int main(void)
         // --- Calculations ---
         // Generate random data
         for (int i = 0; i < width * height; i++) {
-            values[i] = MINVAL + (float)rand() / (float)RAND_MAX * (MAXVAL - MINVAL);
+            //values[i] = MINVAL + (float)rand() / (float)RAND_MAX * (MAXVAL - MINVAL);
+            values[i] = i / (float)(width * height);
         }
 
         // Map to colors
@@ -84,10 +88,10 @@ int main(void)
         glClear(GL_COLOR_BUFFER_BIT);
         glEnable(GL_TEXTURE_2D);
         glBegin(GL_QUADS);
-        glTexCoord2f(0, 0); glVertex2f(0, 0);
-        glTexCoord2f(1, 0); glVertex2f(1, 0);
-        glTexCoord2f(1, 1); glVertex2f(1, 1);
-        glTexCoord2f(0, 1); glVertex2f(0, 1);
+        glTexCoord2f(0, 1); glVertex2f(0, 0);
+        glTexCoord2f(1, 1); glVertex2f(1, 0);
+        glTexCoord2f(1, 0); glVertex2f(1, 1);
+        glTexCoord2f(0, 0); glVertex2f(0, 1);
         glEnd();
         glDisable(GL_TEXTURE_2D);
 
