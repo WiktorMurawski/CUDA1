@@ -30,20 +30,20 @@
 static void value_to_color(double value, double min, double max, unsigned char* r, unsigned char* g, unsigned char* b)
 {
     double t = (value - min) / (max - min);
-    if (t < 0.0f) t = 0.0f;
-    if (t > 1.0f) t = 1.0f;
+    t = std::max(t, 0.0);
+    t = std::min(t, 1.0);
 
-    if (t < 0.5f) {
-        double f = t / 0.5f;
+    if (t < 0.5) {
+        double f = t / 0.5;
         *r = (unsigned char)((1 - sqrt(1 - f)) * 255);
         *g = (unsigned char)((1 - sqrt(1 - f)) * 255);
         *b = 255;
     }
     else {
-        double f = (t - 0.5f) / 0.5f;
+        double f = (t - 0.5) / 0.5;
         *r = 255;
-        *g = (unsigned char)((1.0f - sqrt(f)) * 255);
-        *b = (unsigned char)((1.0f - sqrt(f)) * 255);
+        *g = (unsigned char)((1.0 - sqrt(f)) * 255);
+        *b = (unsigned char)((1.0 - sqrt(f)) * 255);
     }
 }
 
