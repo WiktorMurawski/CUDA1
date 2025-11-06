@@ -8,6 +8,14 @@ project(ElectronsAndProtons VERSION 1.0 LANGUAGES CXX CUDA)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
+# Enable CUDA
+enable_language(CUDA)
+find_package(CUDAToolkit REQUIRED)
+
+# Set CUDA properties
+set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+
 # Optionally set build type to Release or Debug
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the build type" FORCE)
@@ -20,19 +28,11 @@ set(EXTERNAL_DIR ${CMAKE_SOURCE_DIR}/external)
 include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${EXTERNAL_DIR}/glfw/include)
 
-# GLFW (ensure it builds automatically)
-add_subdirectory(${EXTERNAL_DIR}/glfw)
-
-# Enable CUDA
-enable_language(CUDA)
-find_package(CUDAToolkit REQUIRED)
-
-# Set CUDA properties
-set(CMAKE_CUDA_STANDARD 17)
-set(CMAKE_CUDA_STANDARD_REQUIRED ON)
-
 # Add include directories for CUDA
 include_directories(${CUDA_INCLUDE_DIRS})
+
+# GLFW (ensure it builds automatically)
+add_subdirectory(${EXTERNAL_DIR}/glfw)
 
 # Add executables for projects
 add_executable(ElectronsAndProtons_CPU ${CMAKE_SOURCE_DIR}/ElectronsAndProtons_CPU/main.cpp)
