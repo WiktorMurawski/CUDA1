@@ -16,6 +16,16 @@
         }                                                       \
     } while (0)                                                 \
 
+#define CUDA_CHECK_GOTO(call, label)                            \
+  do {                                                          \
+    cudaError_t err = (call);                                   \
+        if (err != cudaSuccess) {                               \
+            fprintf(stderr, "CUDA error %s at %s:%d\n",         \
+                cudaGetErrorString(err), __FILE__, __LINE__);   \
+            goto label;                                         \
+        }                                                       \
+  } while (0)                                                   \
+
 cudaError_t addWithCuda(int* c, const int* a, const int* b, unsigned int size);
 
 __global__ void addKernel(int* c, const int* a, const int* b)
@@ -37,9 +47,13 @@ int main(int argc, char** argv)
 
     int c[arraySize] = { 0 };
 
-    // Add vectors in parallel.
-    CUDA_CHECK(addWithCuda(c, a, b, arraySize));
+    // Choose which GPU to run on, change this on a multi-GPU system.
+    CUDA_CHECK_GOTO(cudaSetDevice(0), cleanup);
 
+    // Add vectors in parallel.
+    CUDA_CHECK_GOTO(addWithCuda(c, a, b, arraySize), cleanup);
+
+cleanup:
     printf("[");
     for (int i = 0; i < arraySize; i++)
     {
@@ -59,7 +73,9 @@ int main(int argc, char** argv)
     }
     printf("]\n");
 
-    CUDA_CHECK(cudaDeviceReset());
+
+    delete[] a;
+    delete[] b;
 
     return 0;
 }
@@ -79,9 +95,6 @@ cudaError_t addWithCuda(int* c, const int* a, const int* b, unsigned int size)
     int* dev_b = cd_b.get();
     int* dev_c = cd_c.get();
 
-    // Choose which GPU to run on, change this on a multi-GPU system.
-    CUDA_CHECK(cudaSetDevice(0));
-
     // Copy input vectors from host memory to GPU buffers.
     CUDA_CHECK(cudaMemcpy(dev_a, a, size * sizeof(int), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(dev_b, b, size * sizeof(int), cudaMemcpyHostToDevice));
@@ -95,6 +108,9 @@ cudaError_t addWithCuda(int* c, const int* a, const int* b, unsigned int size)
 
     // Copy output vector from GPU buffer to host memory.
     CUDA_CHECK(cudaMemcpy(c, dev_c, size * sizeof(int), cudaMemcpyDeviceToHost));
+
+    // Reset device
+    CUDA_CHECK(cudaDeviceReset());
 
     return cudaSuccess;
 }

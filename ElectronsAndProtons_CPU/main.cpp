@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <ctime>
+#include <cmath>
 
 #include "particles_t.h"
 #include "i2xy_t.h"
@@ -19,31 +20,35 @@
 #define EPS 1e-6
 
 #define K 1e4 // stała elektrostatyczna, wprost proporcjonalna do siły z jaką cząstki odzdziałują na siebie
-#define MASS_PROTON 1
-#define MASS_ELECTRON 1
-#define CHARGE_PROTON 1
-#define CHARGE_ELECTRON -1
+#define MASS_PROTON 1.0
+#define MASS_ELECTRON 1.0
+#define CHARGE_PROTON 1.0
+#define CHARGE_ELECTRON -1.0
 
 #define PARTICLE_COUNT 100
 
 // Konwersja wartości z zakresu [min, max] na podwójny gradient RGB (blue -> white -> red)
 static void value_to_color(double value, double min, double max, unsigned char* r, unsigned char* g, unsigned char* b)
 {
+    min = min;
+    max = max;
     double t = (value - min) / (max - min);
-    t = std::max(t, 0.0);
-    t = std::min(t, 1.0);
-
+    t = std::clamp(t, 0.0, 1.0);
+    
+    double f, ratio;
     if (t < 0.5) {
-        double f = t / 0.5;
-        *r = (unsigned char)((1 - sqrt(1 - f)) * 255);
-        *g = (unsigned char)((1 - sqrt(1 - f)) * 255);
+        f = 2 * t;
+        ratio = 1 - sqrt(1 - f);
+        *r = (unsigned char)(ratio * 255);
+        *g = (unsigned char)(ratio * 255);
         *b = 255;
     }
     else {
-        double f = (t - 0.5) / 0.5;
+        f = 2 * (t - 0.5);
+        ratio = 1 - sqrt(f);
         *r = 255;
-        *g = (unsigned char)((1.0 - sqrt(f)) * 255);
-        *b = (unsigned char)((1.0 - sqrt(f)) * 255);
+        *g = (unsigned char)(ratio * 255);
+        *b = (unsigned char)(ratio * 255);
     }
 }
 
@@ -141,7 +146,7 @@ int main(void)
 
             // Mapowanie wartości natężenia pola elektrycznego na gradient
             unsigned char r, g, b;
-            value_to_color(field[i], -1, 1, &r, &g, &b);
+            value_to_color(field[i], CHARGE_ELECTRON, CHARGE_PROTON, &r, &g, &b);
             pixels[i * 3 + 0] = r;
             pixels[i * 3 + 1] = g;
             pixels[i * 3 + 2] = b;
