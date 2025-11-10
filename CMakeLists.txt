@@ -84,7 +84,7 @@ endif()
 # Optimization
 if (MSVC)
     add_compile_options(
-        "$<$<CONFIG:Release>:/O3;/Oi;/Ot;/GL;/fp:fast;/arch:AVX2>"
+        "$<$<CONFIG:Release>:/O2;/Oi;/Ot;/GL;/fp:fast;/arch:AVX2>"
         "$<$<CONFIG:RelWithDebInfo>:/O2;/fp:fast>"
     )
 elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

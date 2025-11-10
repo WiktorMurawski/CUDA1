@@ -1,0 +1,10 @@
+# Budowanie:
+cmake -B build
+cd build
+make
+
+# Uruchamianie wersji na CPU:
+./ElectronsAndProtons_CPU
+
+# Uruchamianie wersji na GPU:
+./ElectronsAndProtons_CUDA

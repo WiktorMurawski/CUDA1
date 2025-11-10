@@ -4,56 +4,52 @@
 #include <cstdio>
 #include <ctime>
 #include <cmath>
+#include <getopt.h>
 
 #include "particles_t.h"
 #include "i2xy_t.h"
 
-#define TITLE "ElectronsAndProtons_CPU"
-
-#define WIDTH 800
-#define HEIGHT 600
-
 #define EPS 1e-6
-
 #define K 1e3 // stała elektrostatyczna, wprost proporcjonalna do siły z jaką cząstki odzdziałują na siebie
 #define MASS_PROTON 1.0
 #define MASS_ELECTRON 1.0
 #define CHARGE_PROTON 1.0
 #define CHARGE_ELECTRON -1.0
 
-#define PARTICLE_COUNT 100
+#define DEFAULT_WIDTH 600
+#define DEFAULT_HEIGHT 600
+#define DEFAULT_PARTICLE_COUNT 100
+
+#define TITLE "ElectronsAndProtons_CPU"
 
 // Konwersja wartości z zakresu [min, max] na podwójny gradient RGB (blue -> white -> red)
-static void value_to_color(double value, double min, double max, unsigned char* r, unsigned char* g, unsigned char* b)
-{
-    min = min;
-    max = max;
+static void value_to_color(double value, double min, double max, unsigned char* r, unsigned char* g, unsigned char* b) {
     double t = (value - min) / (max - min);
     t = std::clamp(t, 0.0, 1.0);
     
-    double f, ratio;
     if (t < 0.5) {
-        f = 2 * t;
-        ratio = 1 - sqrt(1 - f);
-        *r = (unsigned char)(ratio * 255);
-        *g = (unsigned char)(ratio * 255);
+        double f = 2 * t;
+        double ratio = 1 - sqrt(1 - f);
+        unsigned char byte = ratio * 255;
+        *r = byte;
+        *g = byte;
         *b = 255;
     }
     else {
-        f = 2 * (t - 0.5);
-        ratio = 1 - sqrt(f);
+        double f = 2 * (t - 0.5);
+        double ratio = 1 - sqrt(f);
+        unsigned char byte = ratio * 255;
         *r = 255;
-        *g = (unsigned char)(ratio * 255);
-        *b = (unsigned char)(ratio * 255);
+        *g = byte;
+        *b = byte;
     }
 }
 
 // Zapełnia strukturę nieruchomymi cząstkami
-static void generateStationaryParticles(particles_t* particles, double min_x, double max_x, double min_y, double max_y)
-{
+static void generateStationaryParticles(particles_t* particles, double min_x, double max_x, double min_y, double max_y) {
     for (int i = 0; i < particles->count; i++) {
-        particles->x[i] = min_x + (double)rand() / (double)RAND_MAX * (max_x - min_x);
-        particles->y[i] = min_y + (double)rand() / (double)RAND_MAX * (max_y - min_y);
+        particles->x[i] = min_x + (double)rand() / (double)(RAND_MAX + 1.0) * (max_x - min_x);
+        particles->y[i] = min_y + (double)rand() / (double)(RAND_MAX + 1.0) * (max_y - min_y);
         particles->vx[i] = 0;
         particles->vy[i] = 0;
         particles->ax[i] = 0;
@@ -63,13 +59,12 @@ static void generateStationaryParticles(particles_t* particles, double min_x, do
 }
 
 // Zapełnia strukturę losowo poruszającymi się cząstkami
-static void generateRandomlyMovingParticles(particles_t* particles, double min_x, double max_x, double min_y, double max_y, double min_vx, double max_vx, double min_vy, double max_vy)
-{
+static void generateRandomlyMovingParticles(particles_t* particles, double min_x, double max_x, double min_y, double max_y, double min_vx, double max_vx, double min_vy, double max_vy) {
     for (int i = 0; i < particles->count; i++) {
-        particles->x[i] = min_x + (double)rand() / (double)RAND_MAX * (max_x - min_x);
-        particles->y[i] = min_y + (double)rand() / (double)RAND_MAX * (max_y - min_y);
-        particles->vx[i] = min_vx + (double)rand() / (double)RAND_MAX * (max_vx - min_vx);
-        particles->vy[i] = min_vy + (double)rand() / (double)RAND_MAX * (max_vy - min_vy);
+        particles->x[i] = min_x + (double)rand() / (double)(RAND_MAX + 1.0) * (max_x - min_x);
+        particles->y[i] = min_y + (double)rand() / (double)(RAND_MAX + 1.0) * (max_y - min_y);
+        particles->vx[i] = min_vx + (double)rand() / (double)(RAND_MAX + 1.0) * (max_vx - min_vx);
+        particles->vy[i] = min_vy + (double)rand() / (double)(RAND_MAX + 1.0) * (max_vy - min_vy);
         particles->ax[i] = 0;
         particles->ay[i] = 0;
         particles->q[i] = (rand() % 2) ? CHARGE_ELECTRON : CHARGE_PROTON;
@@ -81,17 +76,24 @@ void calculateElectricField(double* field, int width, int height, i2xy_t* i2xy, 
 void mapFieldValuesToPixels(double* field, int width, int height, uint8_t* pixels);
 void drawParticles(particles_t* particles, uint8_t* pixels, int width, int height);
 void updateAccelerations(particles_t* particles);
-void moveParticles(particles_t* particles, double dt);
+void moveParticles(particles_t* particles, int width, int height, double dt);
 void displayTextureFromPixels(GLuint* texture, uint8_t* pixels, int width, int height);
+void parseInputArgs(int argc, char** argv, int* width, int* height, int* count);
 
 int main(int argc, char** argv)
 {
+    // seed dla rand() wykorzystywanego do generacji losowych cząstek
     srand((unsigned int)time(nullptr));
 
-    int width = WIDTH;
-    int height = HEIGHT;
-    int count = PARTICLE_COUNT;
+    int width = DEFAULT_WIDTH;
+    int height = DEFAULT_HEIGHT;
+    int count = DEFAULT_PARTICLE_COUNT;
 
+    // Parsowanie argumentów wejściowych
+    parseInputArgs(argc, argv, &width, &height, &count);
+    printf("Ustawienia symulacji:\nRozdzielczość = %d x %d\nLiczba cząstek = %d\n", width, height, count);
+
+    // Otworzenie okna i ustawienie kontekstu OpenGL
     GLFWwindow* window;
     GLuint texture;
     if(setupWindowAndOpenGLContext(&window, &texture, width, height) < 0){
@@ -99,9 +101,12 @@ int main(int argc, char** argv)
         return -1;
     }
 
+    // Inicjalizacja tablic reprezentujących pole i piksele
     i2xy_t i2xy(width, height);
     double* field = new double[width * height];
     uint8_t* pixels = new uint8_t[width * height * 3];
+    
+    // Inicjalizacja losowych cząstek
     particles_t particles(count);
     generateRandomlyMovingParticles(&particles, 0, width, 0, height, -2, +2, -2, +2);
 
@@ -112,24 +117,27 @@ int main(int argc, char** argv)
 
     while (!glfwWindowShouldClose(window))
     {
+        // Wyznaczanie dt
         double currentFrameTime = glfwGetTime();
         double dt = currentFrameTime - prevFrameTime;
         prevFrameTime = currentFrameTime;
         dt = std::min(dt, 0.05);
 
-        // --- Obliczenia ---
+        // Obliczenia natężeń pola
         calculateElectricField(field, width, height, &i2xy, &particles);
+        
+        // Przygotowanie pikseli do wyświetlenia
         mapFieldValuesToPixels(field, width, height, pixels);
         drawParticles(&particles, pixels, width, height);
         
-        // --- Wyświetlanie ---
+        // Wyświetlanie na ekran
         displayTextureFromPixels(&texture, pixels, width, height); 
         
-        // --- Obliczenia ---
+        // Kinematyka cząstek
         updateAccelerations(&particles);
-        moveParticles(&particles, dt);
+        moveParticles(&particles, width, height, dt);
 
-        // --- Wyznaczanie FPS ---
+        // Wyznaczanie FPS
         frames++;
         if (currentFrameTime - prevTime >= frameRefreshInterval) {
             double fps = frames / (currentFrameTime - prevTime);
@@ -144,10 +152,53 @@ int main(int argc, char** argv)
         glfwPollEvents();
     }
 
+    // Czyszczenie
     glfwTerminate();
+    // particles.cleanup();
+    // i2xy.cleanup();
     delete[] field;
     delete[] pixels;
     return 0;
+}
+
+// Parsowanie argumentów
+void parseInputArgs(int argc, char** argv, int* width, int* height, int* count){
+    int option_index = 0;
+    int c, arg;
+
+    static struct option long_options[] = {
+        {"width",   required_argument, 0, 'w'},
+        {"height",  required_argument, 0, 'h'},
+        {"count",   required_argument, 0, 'c'},
+        {0, 0, 0, 0}
+    };
+
+    while ((c = getopt_long(argc, argv, "w:h:c:", long_options, &option_index)) != -1) {
+        switch (c) {
+            case 'w':
+                arg = atoi(optarg);
+                if (arg > 0) *width = arg;
+                break;
+            case 'h':
+                arg = atoi(optarg);
+                if (arg > 0) *height = arg;
+                break;
+            case 'c':
+                arg = atoi(optarg);
+                if (arg > 0) *count = arg;
+                break;
+            case '?':
+                break;
+            default:
+                abort();
+        }
+    }
+
+    if (optind < argc) {
+        printf("Non-option arguments:\n");
+        while (optind < argc)
+            printf("  %s\n", argv[optind++]);
+    }
 }
 
 // Ustawienie okna i OpenGL
@@ -155,9 +206,10 @@ int setupWindowAndOpenGLContext(GLFWwindow** window, GLuint* texture, int width,
     if (!glfwInit()) {
         return -1;
     }
+
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     *window = glfwCreateWindow(width, height, TITLE, nullptr, nullptr);
-    if (!window)
+    if (!*window)
     {
         glfwTerminate();
         return -1;
@@ -201,7 +253,7 @@ void calculateElectricField(double* field, int width, int height, i2xy_t* i2xy, 
             int y = i2xy->y[i];
             double dx = x - particles->x[j];
             double dy = y - particles->y[j];
-            double dist2 = dx * dx + dy * dy;
+            double dist2 = dx * dx + dy * dy + EPS;
             value += particles->q[j] / dist2;
         }
         field[i] = value;
@@ -225,7 +277,19 @@ void drawParticles(particles_t* particles, uint8_t* pixels, int width, int heigh
     {
         int x = (int)particles->x[i];
         int y = (int)particles->y[i];
+        if(x < 0 || x >= width){
+            fprintf(stderr, "ERR: x = %d\n", x);
+            continue;
+        }
+        if(y < 0 || y >= height){
+            fprintf(stderr, "ERR: y = %d\n", y);
+            continue;
+        }
         int idx = (y * width + x) * 3;
+        if (idx < 0 || idx >= width*height*3){
+            fprintf(stderr, "ERR: idx = %d\n", idx);
+            continue;
+        }
         pixels[idx] = 0;     // R
         pixels[idx + 1] = 0; // G
         pixels[idx + 2] = 0; // B
@@ -257,7 +321,7 @@ void updateAccelerations(particles_t* particles){
 }
 
 // Zmiania prędkości i położenia cząstek na podstawie przyspieszeń
-void moveParticles(particles_t* particles, double dt){
+void moveParticles(particles_t* particles, int width, int height, double dt){
     for (int i = 0; i < particles->count; i++) {
         // Zmiana prędkości
         particles->vx[i] += particles->ax[i] * dt;
@@ -268,20 +332,20 @@ void moveParticles(particles_t* particles, double dt){
         particles->y[i] += particles->vy[i] * dt;
 
         // Odbicia
-        if (particles->x[i] < 0) { 
-            particles->x[i] = 0; 
+        if (particles->x[i] < 0 && particles->vx[i] < 0) { 
+            particles->x[i] = -particles->x[i]; 
             particles->vx[i] *= -1; 
         }
-        if (particles->x[i] > WIDTH - 1) { 
-            particles->x[i] = WIDTH - 1; 
+        if (particles->x[i] > width - 1 && particles->vx[i] > 0) { 
+            particles->x[i] = -particles->x[i] + 2*(width - 1); 
             particles->vx[i] *= -1; 
         }
-        if (particles->y[i] < 0) { 
-            particles->y[i] = 0; 
+        if (particles->y[i] < 0 && particles->vy[i] < 0) { 
+            particles->y[i] = -particles->y[i]; 
             particles->vy[i] *= -1; 
         }
-        if (particles->y[i] > HEIGHT - 1) { 
-            particles->y[i] = HEIGHT - 1; 
+        if (particles->y[i] > height - 1 && particles->vy[i] > 0) { 
+            particles->y[i] = -particles->y[i] + 2*(height - 1);
             particles->vy[i] *= -1; 
         }
     }

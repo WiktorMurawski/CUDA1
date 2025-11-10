@@ -7,18 +7,24 @@ struct i2xy_t
     i2xy_t(int width, int height)
     {
         int n = width * height;
-        x = new int[n];
-        y = new int[n];
+        this->x = new int[n];
+        this->y = new int[n];
         for (int i = 0; i < n; i++)
         {
-            x[i] = i % width;
-            y[i] = i / width;
+            this->x[i] = i % width;
+            this->y[i] = i / width;
         }
     }
-
+    
     ~i2xy_t()
     {
-        delete[] x;
-        delete[] y;
+        this->cleanup();
+    }
+
+    void cleanup(){
+        delete[] this->x;
+        delete[] this->y;
+        this->x = nullptr;
+        this->y = nullptr;
     }
 };

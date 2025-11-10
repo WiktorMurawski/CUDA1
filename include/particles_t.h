@@ -22,7 +22,11 @@ struct particles_t
         this->q = new double[count];
     }
 
-    ~particles_t()
+    ~particles_t() {
+        this->cleanup();
+    }
+
+    void cleanup()
     {
         delete[] this->x;
         delete[] this->y;
@@ -32,5 +36,12 @@ struct particles_t
         delete[] this->ay;
         delete[] this->q;
         this->count = 0;
+        this->x = nullptr;
+        this->y = nullptr;
+        this->vx = nullptr;
+        this->vy = nullptr;
+        this->ax = nullptr;
+        this->ay = nullptr;
+        this->q = nullptr; 
     }
 };
