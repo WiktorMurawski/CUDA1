@@ -6,20 +6,19 @@
 #include <cmath>
 
 #include "particles_t.h"
-#include "i2xy_t.h"
 #include "constants.h"
 
 #define TITLE "ElectronsAndProtons_CPU"
 
-void value_to_color(double value, double min, double max, unsigned char* r, unsigned char* g, unsigned char* b);
-int setupWindowAndOpenGLContext(GLFWwindow** window, GLuint* texture, int width, int height);
-void parseInputArgs(int argc, char** argv, int* width, int* height, int* count);
-void calculateElectricField(double* field, int width, int height, i2xy_t* i2xy, particles_t* particles);
-void mapFieldValuesToPixels(double* field, int width, int height, uint8_t* pixels);
-void drawParticles(particles_t* particles, uint8_t* pixels, int width, int height);
+void value_to_color(const double value, const double min, const double max, unsigned char* r, unsigned char* g, unsigned char* b);
+int setupWindowAndOpenGLContext(GLFWwindow** window, GLuint* texture, const int width, const int height);
+void parseInputArgs(const int argc, char* const* argv, int* width, int* height, int* count);
+void calculateElectricField(double* field, const int width, const int height, const particles_t* particles);
+void mapFieldValuesToPixels(const double* field, const int width, const int height, uint8_t* pixels);
+void drawParticles(const particles_t* particles, uint8_t* pixels, const int width, const int height);
 void updateAccelerations(particles_t* particles);
-void moveParticles(particles_t* particles, int width, int height, double dt, double damping);
-void displayTextureFromPixels(GLuint* texture, uint8_t* pixels, int width, int height);
+void moveParticles(particles_t* particles, const int width, const int height, const double dt, const double drag);
+void displayTextureFromPixels(const GLuint* texture, const uint8_t* pixels, const int width, const int height);
 
 int main(int argc, char** argv)
 {
@@ -44,8 +43,6 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    // Inicjalizacja tablic reprezentujących pole i piksele
-    i2xy_t i2xy(width, height);
     double* field = new double[width * height];
     uint8_t* pixels = new uint8_t[width * height * 3];
     
@@ -87,7 +84,7 @@ int main(int argc, char** argv)
         if (!paused)
         {
             // Obliczenia natężeń pola
-            calculateElectricField(field, width, height, &i2xy, &particles);
+            calculateElectricField(field, width, height, &particles);
 
             // Przygotowanie pikseli do wyświetlenia
             mapFieldValuesToPixels(field, width, height, pixels);
@@ -119,14 +116,13 @@ int main(int argc, char** argv)
 
     glfwTerminate();
     particles.cleanup();
-    i2xy.cleanup();
     delete[] field;
     delete[] pixels;
     return 0;
 }
 
 // Parsowanie argumentów
-void parseInputArgs(int argc, char** argv, int* width, int* height, int* count){
+void parseInputArgs(const int argc, char* const* argv, int* width, int* height, int* count){
     int iarg1, iarg2, iarg3;
     //double darg;
     switch (argc)
@@ -187,7 +183,7 @@ int setupWindowAndOpenGLContext(GLFWwindow** window, GLuint* texture, int width,
     return 0;
 }
 
-void displayTextureFromPixels(GLuint* texture, uint8_t* pixels, int width, int height){
+void displayTextureFromPixels(const GLuint* texture, const uint8_t* pixels, const int width, const int height) {
     glBindTexture(GL_TEXTURE_2D, *texture);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels);
 
@@ -203,17 +199,14 @@ void displayTextureFromPixels(GLuint* texture, uint8_t* pixels, int width, int h
 }
 
 // Obliczanie natężenia pola elektrycznego
-void calculateElectricField(double* field, int width, int height, i2xy_t* i2xy, particles_t* particles){
+void calculateElectricField(double* field, const int width, const int height, const particles_t* particles) {
     for (int i = 0; i < width * height; i++) {
         double value = 0;
         for (int j = 0; j < particles->count; j++) {
-            //int x = i2xy->x[i];
-            //int y = i2xy->y[i];
             int x = i % width;
             int y = i / width;
             double dx = x - particles->x[j];
             double dy = y - particles->y[j];
-            //if (dx > 100 || dy > 100) continue;
             double dist2 = dx * dx + dy * dy + EPS;
             value += particles->q[j] / dist2;
         }
@@ -222,7 +215,7 @@ void calculateElectricField(double* field, int width, int height, i2xy_t* i2xy, 
 }
 
 // Mapowanie wartości natężenia pola elektrycznego na gradient
-void mapFieldValuesToPixels(double* field, int width, int height, uint8_t* pixels){
+void mapFieldValuesToPixels(const double* field, const int width, const int height, uint8_t* pixels) {
     for (int i = 0; i < width * height; i++) {
         unsigned char r, g, b;
         value_to_color(field[i], CHARGE_ELECTRON, CHARGE_PROTON, &r, &g, &b);
@@ -233,27 +226,18 @@ void mapFieldValuesToPixels(double* field, int width, int height, uint8_t* pixel
 }
 
 // Nanoszenie cząstek do rysowanej tablicy pixeli
-void drawParticles(particles_t* particles, uint8_t* pixels, int width, int height){
+void drawParticles(const particles_t* particles, uint8_t* pixels, const int width, const int height) {
     for (int i = 0; i < particles->count; i++)
     {
         int x = (int)particles->x[i];
         int y = (int)particles->y[i];
-        if(x < 0 || x >= width){
-            fprintf(stderr, "ERR: x = %d\n", x);
-            continue;
-        }
-        if(y < 0 || y >= height){
-            fprintf(stderr, "ERR: y = %d\n", y);
-            continue;
-        }
+        if (x < 0 || x >= width) continue;
+        if (y < 0 || y >= height) continue;
         int idx = (y * width + x) * 3;
-        if (idx < 0 || idx >= width*height*3){
-            fprintf(stderr, "ERR: idx = %d\n", idx);
-            continue;
-        }
-        pixels[idx] = 0;     // R
-        pixels[idx + 1] = 0; // G
-        pixels[idx + 2] = 0; // B
+        if (idx < 0 || idx >= width * height * 3) continue;
+        pixels[idx] = 0;
+        pixels[idx + 1] = 0;
+        pixels[idx + 2] = 0;
     }
 }
 
@@ -282,7 +266,7 @@ void updateAccelerations(particles_t* particles){
 }
 
 // Zmiana prędkości i położenia cząstek na podstawie przyspieszeń
-void moveParticles(particles_t* particles, int width, int height, double dt, double drag){
+void moveParticles(particles_t* particles, const int width, const int height, const double dt, const double drag) {
     for (int i = 0; i < particles->count; i++) {
         // Opory ruchu
         particles->ax[i] -= drag * particles->vx[i];
@@ -321,13 +305,13 @@ void moveParticles(particles_t* particles, int width, int height, double dt, dou
 }
 
 // Konwersja wartości z zakresu [min, max] na podwójny gradient RGB (blue -> white -> red)
-static void value_to_color(double value, double min, double max, unsigned char* r, unsigned char* g, unsigned char* b) {
+static void value_to_color(const double value, const double min, const double max, unsigned char* r, unsigned char* g, unsigned char* b) {
     double t = (value - min) / (max - min);
     t = std::clamp(t, 0.0, 1.0);
 
     if (t < 0.5) {
         double f = 2 * t;
-        double ratio = 1 - sqrt(1 - f);
+        double ratio = 1 - std::sqrt(1 - f);
         unsigned char byte = ratio * 255;
         *r = byte;
         *g = byte;
@@ -335,7 +319,7 @@ static void value_to_color(double value, double min, double max, unsigned char* 
     }
     else {
         double f = 2 * (t - 0.5);
-        double ratio = 1 - sqrt(f);
+        double ratio = 1 - std::sqrt(f);
         unsigned char byte = ratio * 255;
         *r = 255;
         *g = byte;
