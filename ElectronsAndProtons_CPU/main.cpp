@@ -4,7 +4,6 @@
 #include <cstdio>
 #include <ctime>
 #include <cmath>
-#include <getopt.h>
 
 #include "particles_t.h"
 #include "i2xy_t.h"
@@ -57,6 +56,7 @@ static void generateStationaryParticles(particles_t* particles, double min_x, do
         particles->ax[i] = 0;
         particles->ay[i] = 0;
         particles->q[i] = (rand() % 2) ? CHARGE_ELECTRON : CHARGE_PROTON;
+        particles->m[i] = (rand() % 2) ? MASS_ELECTRON : MASS_PROTON;
     }
 }
 
@@ -70,11 +70,12 @@ static void generateRandomlyMovingParticles(particles_t* particles, double min_x
         particles->ax[i] = 0;
         particles->ay[i] = 0;
         particles->q[i] = (rand() % 2) ? CHARGE_ELECTRON : CHARGE_PROTON;
+        particles->m[i] = (rand() % 2) ? MASS_ELECTRON : MASS_PROTON;
     }
 }
 
-void parseInputArgs(int argc, char** argv, int* width, int* height, int* count, double* damping);
 int setupWindowAndOpenGLContext(GLFWwindow** window, GLuint* texture, int width, int height);
+void parseInputArgs(int argc, char** argv, int* width, int* height, int* count, double* damping);
 void calculateElectricField(double* field, int width, int height, i2xy_t* i2xy, particles_t* particles);
 void mapFieldValuesToPixels(double* field, int width, int height, uint8_t* pixels);
 void drawParticles(particles_t* particles, uint8_t* pixels, int width, int height);
@@ -156,7 +157,6 @@ int main(int argc, char** argv)
         glfwPollEvents();
     }
 
-    // Czyszczenie
     glfwTerminate();
     // particles.cleanup();
     // i2xy.cleanup();
@@ -167,47 +167,34 @@ int main(int argc, char** argv)
 
 // Parsowanie argumentów
 void parseInputArgs(int argc, char** argv, int* width, int* height, int* count, double* damping){
-    int option_index = 0;
-    int c, arg;
+    int iarg1, iarg2, iarg3;
     double darg;
-
-    static struct option long_options[] = {
-        {"width",   required_argument, 0, 'w'},
-        {"height",  required_argument, 0, 'h'},
-        {"count",   required_argument, 0, 'c'},
-        {"damping", required_argument, 0, 'd'},
-        {0, 0, 0, 0}
-    };
-
-    while ((c = getopt_long(argc, argv, "w:h:c:d:", long_options, &option_index)) != -1) {
-        switch (c) {
-            case 'w':
-                arg = atoi(optarg);
-                if (arg > 0) *width = arg;
-                break;
-            case 'h':
-                arg = atoi(optarg);
-                if (arg > 0) *height = arg;
-                break;
-            case 'c':
-                arg = atoi(optarg);
-                if (arg > 0) *count = arg;
-                break;
-            case 'd':
-                darg = atof(optarg);
-                if (arg >= 0.0) *damping = darg;
-                break;
-            case '?':
-                break;
-            default:
-                abort();
+    switch (argc)
+    {
+    case 2:
+        iarg1 = atoi(argv[1]);
+        if (iarg1 > 0) *count = iarg1;
+        break;
+    case 3:
+        iarg1 = atoi(argv[1]);
+        iarg2 = atoi(argv[2]);
+        if (iarg1 > 0 && iarg2 > 0) {
+            *width = iarg1;
+            *height = iarg2;
         }
-    }
-
-    if (optind < argc) {
-        printf("Non-option arguments:\n");
-        while (optind < argc)
-            printf("  %s\n", argv[optind++]);
+        break;
+    case 4:
+        iarg1 = atoi(argv[1]);
+        iarg2 = atoi(argv[2]);
+        iarg3 = atoi(argv[3]);
+        if (iarg1 > 0 && iarg2 > 0 && iarg3 > 0) {
+            *width = iarg1;
+            *height = iarg2;
+            *count = iarg3;
+        }
+        break;
+    default:
+        break;
     }
 }
 
@@ -265,6 +252,7 @@ void calculateElectricField(double* field, int width, int height, i2xy_t* i2xy, 
             int y = i2xy->y[i];
             double dx = x - particles->x[j];
             double dy = y - particles->y[j];
+            if (dx > 50 || dy > 50) continue;
             double dist2 = dx * dx + dy * dy + EPS;
             value += particles->q[j] / dist2;
         }
@@ -322,7 +310,7 @@ void updateAccelerations(particles_t* particles){
             double invDist = 1.0 / sqrt(dist2);
             double invDist3 = invDist * invDist * invDist;
 
-            double f = K * particles->q[i] * particles->q[j] * invDist3;
+            double f = K * particles->q[i] * particles->q[j] * invDist3 / particles->m[i];
             ax += f * dx;
             ay += f * dy;
         }

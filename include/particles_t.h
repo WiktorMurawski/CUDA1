@@ -8,6 +8,7 @@ struct particles_t
     double* ax;
     double* ay;
     double* q;
+    double* m;
     int count;
 
     particles_t(int count)
@@ -20,6 +21,7 @@ struct particles_t
         this->ax = new double[count];
         this->ay = new double[count];
         this->q = new double[count];
+        this->m = new double[count];
     }
 
     ~particles_t() {
@@ -35,6 +37,7 @@ struct particles_t
         delete[] this->ax;
         delete[] this->ay;
         delete[] this->q;
+        delete[] this->m;
         this->count = 0;
         this->x = nullptr;
         this->y = nullptr;
@@ -42,6 +45,7 @@ struct particles_t
         this->vy = nullptr;
         this->ax = nullptr;
         this->ay = nullptr;
-        this->q = nullptr; 
+        this->q = nullptr;
+        this->m = nullptr;
     }
 };
