@@ -18,7 +18,7 @@ struct i2xy_t
     
     ~i2xy_t()
     {
-        this->cleanup();
+        //this->cleanup();
     }
 
     void cleanup(){

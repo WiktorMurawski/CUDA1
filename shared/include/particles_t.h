@@ -1,4 +1,6 @@
-﻿// Struktura przechowująca informacje o cząstkach w tablicach; SoA
+﻿#pragma once
+
+// Struktura przechowująca informacje o cząstkach w tablicach; SoA
 struct particles_t
 {
     double* x;
@@ -10,6 +12,10 @@ struct particles_t
     double* q;
     double* m;
     int count;
+
+    particles_t() : x(nullptr), y(nullptr), vx(nullptr), vy(nullptr),
+        ax(nullptr), ay(nullptr), q(nullptr), m(nullptr), count(0) {
+    }
 
     particles_t(int count)
     {
@@ -25,7 +31,7 @@ struct particles_t
     }
 
     ~particles_t() {
-        this->cleanup();
+        //this->cleanup();
     }
 
     void cleanup()
@@ -49,3 +55,7 @@ struct particles_t
         this->m = nullptr;
     }
 };
+
+void generateStationaryParticles(particles_t* particles, double min_x, double max_x, double min_y, double max_y);
+void generateRandomlyMovingParticles(particles_t* particles, double min_x, double max_x, double min_y, double max_y, double min_vx, double max_vx, double min_vy, double max_vy);
+void modifyParticleData(particles_t* particles, int index, double x, double y, double vx, double vy, double q, double m);

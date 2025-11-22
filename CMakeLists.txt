@@ -1,4 +1,4 @@
-# CMake minimum version
+﻿# CMake minimum version
 cmake_minimum_required(VERSION 3.18)
 cmake_policy(SET CMP0104 NEW) # For CUDA architectures
 
@@ -35,15 +35,15 @@ find_package(CUDAToolkit REQUIRED)
 # Add include directories for CUDA
 include_directories(${CUDA_INCLUDE_DIRS})
 
-# Optionally set build type to Release or Debug
+# Set build type to Release if build type not set
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
 # Add include directories
-include_directories(${CMAKE_SOURCE_DIR}/include)
+include_directories(${CMAKE_SOURCE_DIR}/shared/include)
 
-# Fetch GLFW
+# Fetch GLFW from GitHub
 include(FetchContent)
 FetchContent_Declare(
         glfw
@@ -55,9 +55,32 @@ FetchContent_MakeAvailable(glfw)
 # OpenGL (cross-platform)
 find_package(OpenGL REQUIRED)
 
+# Wszystkie wspólne pliki źródłowe w shared/src
+file(GLOB SHARED_SRC
+    "${CMAKE_SOURCE_DIR}/shared/src/*.cpp"
+    "${CMAKE_SOURCE_DIR}/shared/src/*.cu"
+)
+
+# CPU
+set(CPU_SRC
+    "${CMAKE_SOURCE_DIR}/ElectronsAndProtons_CPU/main.cpp"
+)
+
+# CUDA
+set(CUDA_SRC
+    "${CMAKE_SOURCE_DIR}/ElectronsAndProtons_CUDA/main.cu"
+)
+
 # Add executables for projects
-add_executable(ElectronsAndProtons_CPU ${CMAKE_SOURCE_DIR}/ElectronsAndProtons_CPU/main.cpp)
-add_executable(ElectronsAndProtons_CUDA ${CMAKE_SOURCE_DIR}/ElectronsAndProtons_CUDA/main.cu)
+add_executable(ElectronsAndProtons_CPU
+    ${CPU_SRC}
+    ${SHARED_SRC}
+)
+
+add_executable(ElectronsAndProtons_CUDA
+    ${CUDA_SRC}
+    ${SHARED_SRC}
+)
 
 # Link libraries
 target_link_libraries(ElectronsAndProtons_CPU PRIVATE
