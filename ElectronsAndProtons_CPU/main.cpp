@@ -10,18 +10,17 @@
 
 #define TITLE "ElectronsAndProtons_CPU"
 
-void value_to_color(const double value, const double min, const double max, unsigned char* r, unsigned char* g, unsigned char* b);
-int setupWindowAndOpenGLContext(GLFWwindow** window, GLuint* texture, const int width, const int height);
 void parseInputArgs(const int argc, char* const* argv, int* width, int* height, int* count);
-void calculateElectricField(double* field, const int width, const int height, const particles_t* particles);
-void mapFieldValuesToPixels(const double* field, const int width, const int height, uint8_t* pixels);
+int setupWindowAndOpenGLContext(GLFWwindow** window, GLuint* texture, const int width, const int height);
+void displayTextureFromPixels(const GLuint* texture, const uint8_t* pixels, const int width, const int height);
+void calculateElectricField(float* field, const int width, const int height, const particles_t* particles);
+void mapFieldValuesToPixels(const float* field, const int width, const int height, uint8_t* pixels);
 void drawParticles(const particles_t* particles, uint8_t* pixels, const int width, const int height);
 void updateAccelerations(particles_t* particles);
-void moveParticles(particles_t* particles, const int width, const int height, const double dt, const double drag);
-void displayTextureFromPixels(const GLuint* texture, const uint8_t* pixels, const int width, const int height);
+void moveParticles(particles_t* particles, const int width, const int height, const float dt, const float drag);
+void value_to_color(const float value, const float min, const float max, unsigned char* r, unsigned char* g, unsigned char* b);
 
-int main(int argc, char** argv)
-{
+int main(int argc, char** argv) {
     // seed dla rand() wykorzystywanego do generacji losowych cząstek
     srand((unsigned int)time(nullptr));
 
@@ -29,7 +28,7 @@ int main(int argc, char** argv)
     int width = DEFAULT_WIDTH;
     int height = DEFAULT_HEIGHT;
     int count = DEFAULT_PARTICLE_COUNT;
-    double drag = DEFAULT_DRAG;
+    float drag = DEFAULT_DRAG;
 
     // Parsowanie argumentów wejściowych
     parseInputArgs(argc, argv, &width, &height, &count);
@@ -43,7 +42,7 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    double* field = new double[width * height];
+    float* field = new float[width * height];
     uint8_t* pixels = new uint8_t[width * height * 3];
     
     // Inicjalizacja losowych cząstek
@@ -55,9 +54,9 @@ int main(int argc, char** argv)
     modifyParticleData(&particles, 1, width / 4.0 * 3, height / 4.0 * 3, 0, 0, 100 * CHARGE_ELECTRON, 1e9 * MASS_PROTON);
 
     uint64_t frames = 0;
-    double frameRefreshInterval = 0.2;
-    double prevFrameTime = glfwGetTime();
-    double prevTime = prevFrameTime;
+    float frameRefreshInterval = 0.2;
+    float prevFrameTime = glfwGetTime();
+    float prevTime = prevFrameTime;
 
     bool paused = false;
     bool spaceWasPressed = false;
@@ -65,10 +64,11 @@ int main(int argc, char** argv)
     while (!glfwWindowShouldClose(window))
     {
         // Wyznaczanie dt
-        double currentFrameTime = glfwGetTime();
-        double dt = currentFrameTime - prevFrameTime;
+        float currentFrameTime = glfwGetTime();
+        float dt = currentFrameTime - prevFrameTime;
         prevFrameTime = currentFrameTime;
-        dt = std::min(dt, 0.03);
+        dt = std::min(dt, 0.03f);
+        //dt = myMin(dt, 0.03f);
 
         // Zatrzymywanie / wznawianie symulacji
         if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
@@ -103,7 +103,7 @@ int main(int argc, char** argv)
         // Wyznaczanie FPS
         frames++;
         if (currentFrameTime - prevTime >= frameRefreshInterval) {
-            double fps = frames / (currentFrameTime - prevTime);
+            float fps = frames / (currentFrameTime - prevTime);
             char title[128];
             snprintf(title, sizeof(title), "FPS: %.1f - %s%s", fps, TITLE, paused ? " [PAUSED]" : "");
             glfwSetWindowTitle(window, title);
@@ -124,7 +124,7 @@ int main(int argc, char** argv)
 // Parsowanie argumentów
 void parseInputArgs(const int argc, char* const* argv, int* width, int* height, int* count){
     int iarg1, iarg2, iarg3;
-    //double darg;
+    //float darg;
     switch (argc)
     {
     case 2:
@@ -199,15 +199,15 @@ void displayTextureFromPixels(const GLuint* texture, const uint8_t* pixels, cons
 }
 
 // Obliczanie natężenia pola elektrycznego
-void calculateElectricField(double* field, const int width, const int height, const particles_t* particles) {
+void calculateElectricField(float* field, const int width, const int height, const particles_t* particles) {
     for (int i = 0; i < width * height; i++) {
-        double value = 0;
+        float value = 0;
         for (int j = 0; j < particles->count; j++) {
             int x = i % width;
             int y = i / width;
-            double dx = x - particles->x[j];
-            double dy = y - particles->y[j];
-            double dist2 = dx * dx + dy * dy + EPS;
+            float dx = x - particles->x[j];
+            float dy = y - particles->y[j];
+            float dist2 = dx * dx + dy * dy + EPS;
             value += particles->q[j] / dist2;
         }
         field[i] = value;
@@ -215,7 +215,7 @@ void calculateElectricField(double* field, const int width, const int height, co
 }
 
 // Mapowanie wartości natężenia pola elektrycznego na gradient
-void mapFieldValuesToPixels(const double* field, const int width, const int height, uint8_t* pixels) {
+void mapFieldValuesToPixels(const float* field, const int width, const int height, uint8_t* pixels) {
     for (int i = 0; i < width * height; i++) {
         unsigned char r, g, b;
         value_to_color(field[i], CHARGE_ELECTRON, CHARGE_PROTON, &r, &g, &b);
@@ -244,18 +244,18 @@ void drawParticles(const particles_t* particles, uint8_t* pixels, const int widt
 // Obliczanie przyspieszeń wynikających z pola elektrycznego
 void updateAccelerations(particles_t* particles){
     for (int i = 0; i < particles->count; i++) {
-        double ax = 0.0;
-        double ay = 0.0;
+        float ax = 0.0;
+        float ay = 0.0;
         for (int j = 0; j < particles->count; j++) {
             if (i == j) continue;
 
-            double dx = particles->x[i] - particles->x[j];
-            double dy = particles->y[i] - particles->y[j];
-            double dist2 = dx * dx + dy * dy + EPS;
-            double invDist = 1.0 / sqrt(dist2);
-            double invDist3 = invDist * invDist * invDist;
+            float dx = particles->x[i] - particles->x[j];
+            float dy = particles->y[i] - particles->y[j];
+            float dist2 = dx * dx + dy * dy + EPS;
+            float invDist = 1.0 / sqrt(dist2);
+            float invDist3 = invDist * invDist * invDist;
 
-            double f = K * particles->q[i] * particles->q[j] * invDist3 / particles->m[i];
+            float f = K * particles->q[i] * particles->q[j] * invDist3 / particles->m[i];
             ax += f * dx;
             ay += f * dy;
         }
@@ -266,7 +266,7 @@ void updateAccelerations(particles_t* particles){
 }
 
 // Zmiana prędkości i położenia cząstek na podstawie przyspieszeń
-void moveParticles(particles_t* particles, const int width, const int height, const double dt, const double drag) {
+void moveParticles(particles_t* particles, const int width, const int height, const float dt, const float drag) {
     for (int i = 0; i < particles->count; i++) {
         // Opory ruchu
         particles->ax[i] -= drag * particles->vx[i];
@@ -305,21 +305,21 @@ void moveParticles(particles_t* particles, const int width, const int height, co
 }
 
 // Konwersja wartości z zakresu [min, max] na podwójny gradient RGB (blue -> white -> red)
-static void value_to_color(const double value, const double min, const double max, unsigned char* r, unsigned char* g, unsigned char* b) {
-    double t = (value - min) / (max - min);
-    t = std::clamp(t, 0.0, 1.0);
+static void value_to_color(const float value, const float min, const float max, unsigned char* r, unsigned char* g, unsigned char* b) {
+    float t = (value - min) / (max - min);
+    t = std::clamp(t, 0.0f, 1.0f);
 
     if (t < 0.5) {
-        double f = 2 * t;
-        double ratio = 1 - std::sqrt(1 - f);
+        float f = 2 * t;
+        float ratio = 1 - std::sqrt(1 - f);
         unsigned char byte = ratio * 255;
         *r = byte;
         *g = byte;
         *b = 255;
     }
     else {
-        double f = 2 * (t - 0.5);
-        double ratio = 1 - std::sqrt(f);
+        float f = 2 * (t - 0.5);
+        float ratio = 1 - std::sqrt(f);
         unsigned char byte = ratio * 255;
         *r = 255;
         *g = byte;

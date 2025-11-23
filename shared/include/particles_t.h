@@ -1,16 +1,17 @@
-﻿#pragma once
+﻿#ifndef particles_t_h
+#define particles_t_h
 
 // Struktura przechowująca informacje o cząstkach w tablicach; SoA
 struct particles_t
 {
-    double* x;
-    double* y;
-    double* vx;
-    double* vy;
-    double* ax;
-    double* ay;
-    double* q;
-    double* m;
+    float* x;
+    float* y;
+    float* vx;
+    float* vy;
+    float* ax;
+    float* ay;
+    float* q;
+    float* m;
     int count;
 
     particles_t() : x(nullptr), y(nullptr), vx(nullptr), vy(nullptr),
@@ -20,14 +21,14 @@ struct particles_t
     particles_t(int count)
     {
         this->count = count;
-        this->x = new double[count];
-        this->y = new double[count];
-        this->vx = new double[count];
-        this->vy = new double[count];
-        this->ax = new double[count];
-        this->ay = new double[count];
-        this->q = new double[count];
-        this->m = new double[count];
+        this->x = new float[count];
+        this->y = new float[count];
+        this->vx = new float[count];
+        this->vy = new float[count];
+        this->ax = new float[count];
+        this->ay = new float[count];
+        this->q = new float[count];
+        this->m = new float[count];
     }
 
     ~particles_t() {
@@ -56,6 +57,8 @@ struct particles_t
     }
 };
 
-void generateStationaryParticles(particles_t* particles, double min_x, double max_x, double min_y, double max_y);
-void generateRandomlyMovingParticles(particles_t* particles, double min_x, double max_x, double min_y, double max_y, double min_vx, double max_vx, double min_vy, double max_vy);
-void modifyParticleData(particles_t* particles, int index, double x, double y, double vx, double vy, double q, double m);
+void generateStationaryParticles(particles_t* particles, float min_x, float max_x, float min_y, float max_y);
+void generateRandomlyMovingParticles(particles_t* particles, float min_x, float max_x, float min_y, float max_y, float min_vx, float max_vx, float min_vy, float max_vy);
+void modifyParticleData(particles_t* particles, int index, float x, float y, float vx, float vy, float q, float m);
+
+#endif

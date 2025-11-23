@@ -1,17 +1,23 @@
-﻿#include "cuda_runtime.h"
-#include "device_launch_parameters.h"
-
-#include <GLFW/glfw3.h>
+﻿#include <GLFW/glfw3.h>
+#include <GL/gl.h>             // Opcjonalnie, nie zawsze wymagane
+#include <cuda_runtime.h>
+#include <device_launch_parameters.h>
+#include <cuda_gl_interop.h>
 #include <algorithm>
 #include <cstdlib>
 #include <cstdio>
 #include <ctime>
 #include <cmath>
 
+#define uchar unsigned char
+
+//#include "cuda_runtime.h"
+//#include "device_launch_parameters.h"
+//#include <cuda_gl_interop.h>
+
 #include "cuda_buffer.cuh"
 #include "random_fill.cuh"
 #include "particles_t.h"
-#include "i2xy_t.h"
 #include "constants.h"
 #include "gpu_particles_handle_t.h"
 
@@ -39,31 +45,112 @@
         }                                                       \
     } while (0)                                                 \
 
-void value_to_color(double value, double min, double max, unsigned char* r, unsigned char* g, unsigned char* b);
-int setupWindowAndOpenGLContext(GLFWwindow * *window, GLuint * texture, int width, int height);
-void parseInputArgs(int argc, char** argv, int* width, int* height, int* count);
-void calculateElectricField(double* field, int width, int height, i2xy_t * i2xy, particles_t * particles);
-void mapFieldValuesToPixels(double* field, int width, int height, uint8_t * pixels);
-void drawParticles(particles_t * particles, uint8_t * pixels, int width, int height);
+void value_to_color(const float value, const float min, const float max, unsigned char* r, unsigned char* g, unsigned char* b);
+int setupWindowAndOpenGLContext(GLFWwindow * *window, GLuint * texture, const int width, const int height);
+void parseInputArgs(const int argc, char* const* argv, int* width, int* height, int* count);
+void calculateElectricField(float* field, const int width, const int height, const particles_t * particles);
+void mapFieldValuesToPixels(const float* field, const int width, const int height, uint8_t * pixels);
+void drawParticles(const particles_t * particles, uint8_t * pixels, const int width, const int height);
 void updateAccelerations(particles_t * particles);
-void moveParticles(particles_t * particles, int width, int height, double dt, double damping);
-void displayTextureFromPixels(GLuint * texture, uint8_t * pixels, int width, int height);
+void moveParticles(particles_t * particles, const int width, const int height, const float dt, const float drag);
+void displayTextureFromPixels(const GLuint * texture, const uint8_t * pixels, const int width, const int height);
 
-cudaError_t allocateAndCopyParticlesToDevice(particles_t * h_particles, gpu_particles_handle_t * handle);
+cudaError_t allocateAndCopyParticlesToDevice(const particles_t * h_particles, gpu_particles_handle_t * handle);
 void freeParticlesOnGPU(gpu_particles_handle_t * handle);
 
-__global__ void calculateElectricField_Kernel(const particles_t* particles, const int width, const int height, double* field_out)
+// Konwersja wartości pola do koloru
+__device__ uchar4 value_to_color(float value, float min, float max)
+{
+    float t = (value - min) / (max - min);
+    t = fminf(fmaxf(t, 0.0f), 1.0f);
+    uchar r, g, b;
+
+    if (t < 0.5f) {
+        float f = 2.0f * t;
+        float ratio = 1.0f - sqrtf(1.0f - f);
+        uchar byte = (uchar)(ratio * 255.0f);
+        r = byte;
+        g = byte;
+        b = 255;
+    }
+    else {
+        float f = 2.0f * (t - 0.5f);
+        float ratio = 1.0f - sqrtf(f);
+        uchar byte = (uchar)(ratio * 255.0f);
+        r = 255;
+        g = byte;
+        b = byte;
+    }
+
+    return make_uchar4(r, g, b, 255);
+}
+
+// Kernel zapisujący pole bezpośrednio do tekstury (surface)
+__global__ void calculateFieldToTextureKernel(const particles_t* particles, int width, int height, cudaSurfaceObject_t surface)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= width * height) return;
 
-    double value = 0;
+    int x = i % width;
+    int y = i / width;
+
+    float value = 0.0;
+    for (int j = 0; j < particles->count; j++) {
+        float dx = x - particles->x[j];
+        float dy = y - particles->y[j];
+        float dist2 = dx * dx + dy * dy + 1e-3;
+        value += particles->q[j] / dist2;
+    }
+
+    uchar4 color = value_to_color((float)value, -1.0f, 1.0f);
+    surf2Dwrite(color, surface, x * sizeof(uchar4), y);
+}
+
+// Funkcje OpenGL
+int setupWindowAndTexture(GLFWwindow * *window, GLuint * texture, int width, int height)
+{
+    if (!glfwInit()) return -1;
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    *window = glfwCreateWindow(width, height, TITLE, nullptr, nullptr);
+    if (!*window) { glfwTerminate(); return -1; }
+
+    glfwMakeContextCurrent(*window);
+    glOrtho(0, 1, 0, 1, -1, 1);
+
+    glGenTextures(1, texture);
+    glBindTexture(GL_TEXTURE_2D, *texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
+    return 0;
+}
+
+void drawTexture(GLuint texture)
+{
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_TEXTURE_2D);
+    glBegin(GL_QUADS);
+    glTexCoord2f(0, 1); glVertex2f(0, 0);
+    glTexCoord2f(1, 1); glVertex2f(1, 0);
+    glTexCoord2f(1, 0); glVertex2f(1, 1);
+    glTexCoord2f(0, 0); glVertex2f(0, 1);
+    glEnd();
+    glDisable(GL_TEXTURE_2D);
+}
+
+__global__ void calculateElectricField_Kernel(const particles_t* particles, const int width, const int height, float* field_out)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= width * height) return;
+
+    float value = 0;
     for (int j = 0; j < particles->count; j++) {
         int x = i % width;
         int y = i / width;
-        double dx = x - particles->x[j];
-        double dy = y - particles->y[j];
-        double dist2 = dx * dx + dy * dy + EPS;
+        float dx = x - particles->x[j];
+        float dy = y - particles->y[j];
+        float dist2 = dx * dx + dy * dy + EPS;
         value += particles->q[j] / dist2;
     }
     field_out[i] = value;
@@ -77,8 +164,8 @@ int main(int argc, char** argv)
     // Domyślne parametry symulacji
     int width = DEFAULT_WIDTH;
     int height = DEFAULT_HEIGHT;
-    int count = DEFAULT_PARTICLE_COUNT;
-    double drag = DEFAULT_DRAG;
+    int count = DEFAULT_PARTICLE_COUNT_CUDA;
+    float drag = DEFAULT_DRAG;
 
     // Parsowanie argumentów wejściowych
     parseInputArgs(argc, argv, &width, &height, &count);
@@ -93,8 +180,7 @@ int main(int argc, char** argv)
     }
 
     // Inicjalizacja tablic reprezentujących pole i piksele
-    i2xy_t i2xy(width, height);
-    double* field = new double[width * height];
+    float* field = new float[width * height];
     uint8_t* pixels = new uint8_t[width * height * 3];
 
     // Inicjalizacja losowych cząstek
@@ -106,15 +192,24 @@ int main(int argc, char** argv)
     modifyParticleData(&particles, 1, width / 4.0 * 3, height / 4.0 * 3, 0, 0, 100 * CHARGE_ELECTRON, 1e9 * MASS_PROTON);
 
     uint64_t frames = 0;
-    double frameRefreshInterval = 0.2;
-    double prevFrameTime = glfwGetTime();
-    double prevTime = prevFrameTime;
+    float frameRefreshInterval = 0.2;
+    float prevFrameTime = glfwGetTime();
+    float prevTime = prevFrameTime;
 
     bool paused = false;
     bool spaceWasPressed = false;
 
+    // CUDA-OpenGL interop
+    cudaGraphicsResource* cudaTextureResource = nullptr;
+    cudaError_t err = CUDA_CHECK_RET(cudaGraphicsGLRegisterImage(&cudaTextureResource, texture, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
+    if (err != cudaSuccess)
+    {
+        fprintf(stderr, "CUDA error during registering texture");
+        goto cleanup;
+    }
+
     gpu_particles_handle_t gpu_particles_handle;
-    cudaError_t err = allocateAndCopyParticlesToDevice(&particles, &gpu_particles_handle);
+    err = allocateAndCopyParticlesToDevice(&particles, &gpu_particles_handle);
     if (err != cudaSuccess)
     {
         fprintf(stderr, "CUDA error during allocation and copying of particles");
@@ -125,10 +220,10 @@ int main(int argc, char** argv)
     while (!glfwWindowShouldClose(window))
     {
         // Wyznaczanie dt
-        double currentFrameTime = glfwGetTime();
-        double dt = currentFrameTime - prevFrameTime;
+        float currentFrameTime = glfwGetTime();
+        float dt = currentFrameTime - prevFrameTime;
         prevFrameTime = currentFrameTime;
-        dt = std::min(dt, 0.03);
+        dt = std::min(dt, 0.03f);
 
         // Zatrzymywanie / wznawianie symulacji
         if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
@@ -143,27 +238,35 @@ int main(int argc, char** argv)
 
         if (!paused)
         {
-            // Obliczenia natężeń pola
-            calculateElectricField(field, width, height, &i2xy, &particles);
+            // Mapujemy teksturę do CUDA
+            CUDA_CHECK_RET(cudaGraphicsMapResources(1, &cudaTextureResource, 0));
+            cudaArray* textureArray;
+            CUDA_CHECK_RET(cudaGraphicsSubResourceGetMappedArray(&textureArray, cudaTextureResource, 0, 0));
 
-            // Przygotowanie pikseli do wyświetlenia
-            mapFieldValuesToPixels(field, width, height, pixels);
-            drawParticles(&particles, pixels, width, height);
+            cudaResourceDesc resDesc = {};
+            resDesc.resType = cudaResourceTypeArray;
+            resDesc.res.array.array = textureArray;
+            cudaSurfaceObject_t surface = 0;
+            CUDA_CHECK_RET(cudaCreateSurfaceObject(&surface, &resDesc));
 
-            // Zapisywanie pikseli do tekstury
-            displayTextureFromPixels(&texture, pixels, width, height);
+            // Kernel
+            int threads = 256;
+            int blocks = (width * height + threads - 1) / threads;
+            calculateFieldToTextureKernel << <blocks, threads >> > (gpu_particles_handle.d_struct, width, height, surface);
+            cudaDeviceSynchronize();
 
-            // Kinematyka cząstek
-            updateAccelerations(&particles);
-            moveParticles(&particles, width, height, dt, drag);
+            CUDA_CHECK_RET(cudaDestroySurfaceObject(surface));
+            CUDA_CHECK_RET(cudaGraphicsUnmapResources(1, &cudaTextureResource, 0));
 
+            // Wyświetlamy teksturę
+            drawTexture(texture);
             glfwSwapBuffers(window);
         }
 
         // Wyznaczanie FPS
         frames++;
         if (currentFrameTime - prevTime >= frameRefreshInterval) {
-            double fps = frames / (currentFrameTime - prevTime);
+            float fps = frames / (currentFrameTime - prevTime);
             char title[128];
             snprintf(title, sizeof(title), "FPS: %.1f - %s%s", fps, TITLE, paused ? " [PAUSED]" : "");
             glfwSetWindowTitle(window, title);
@@ -177,17 +280,15 @@ int main(int argc, char** argv)
 cleanup:
     glfwTerminate();
     //particles.cleanup();
-    i2xy.cleanup();
     delete[] field;
     delete[] pixels;
-
+    cudaGraphicsUnregisterResource(cudaTextureResource);
     freeParticlesOnGPU(&gpu_particles_handle);
-
     return 0;
 }
 
 // Funkcja alokująca i kopiująca cząstki na GPU, zwraca uchwyt do cząstek na GPU zawierający wskaźniki do poszczególnych tablic i do całej struktury
-cudaError_t allocateAndCopyParticlesToDevice(particles_t* h_particles, gpu_particles_handle_t* handle)
+cudaError_t allocateAndCopyParticlesToDevice(const particles_t* h_particles, gpu_particles_handle_t* handle)
 {
     if (!h_particles || !handle) return cudaErrorInvalidValue;
 
@@ -204,24 +305,24 @@ cudaError_t allocateAndCopyParticlesToDevice(particles_t* h_particles, gpu_parti
     CUDA_CHECK_GOTO(cudaMalloc(&handle->d_struct, sizeof(particles_t)), cleanup);
 
     // Alokacja tablic GPU
-    CUDA_CHECK_GOTO(cudaMalloc(&handle->d_x, count * sizeof(double)), cleanup);
-    CUDA_CHECK_GOTO(cudaMalloc(&handle->d_y, count * sizeof(double)), cleanup);
-    CUDA_CHECK_GOTO(cudaMalloc(&handle->d_vx, count * sizeof(double)), cleanup);
-    CUDA_CHECK_GOTO(cudaMalloc(&handle->d_vy, count * sizeof(double)), cleanup);
-    CUDA_CHECK_GOTO(cudaMalloc(&handle->d_ax, count * sizeof(double)), cleanup);
-    CUDA_CHECK_GOTO(cudaMalloc(&handle->d_ay, count * sizeof(double)), cleanup);
-    CUDA_CHECK_GOTO(cudaMalloc(&handle->d_q, count * sizeof(double)), cleanup);
-    CUDA_CHECK_GOTO(cudaMalloc(&handle->d_m, count * sizeof(double)), cleanup);
+    CUDA_CHECK_GOTO(cudaMalloc(&handle->d_x, count * sizeof(float)), cleanup);
+    CUDA_CHECK_GOTO(cudaMalloc(&handle->d_y, count * sizeof(float)), cleanup);
+    CUDA_CHECK_GOTO(cudaMalloc(&handle->d_vx, count * sizeof(float)), cleanup);
+    CUDA_CHECK_GOTO(cudaMalloc(&handle->d_vy, count * sizeof(float)), cleanup);
+    CUDA_CHECK_GOTO(cudaMalloc(&handle->d_ax, count * sizeof(float)), cleanup);
+    CUDA_CHECK_GOTO(cudaMalloc(&handle->d_ay, count * sizeof(float)), cleanup);
+    CUDA_CHECK_GOTO(cudaMalloc(&handle->d_q, count * sizeof(float)), cleanup);
+    CUDA_CHECK_GOTO(cudaMalloc(&handle->d_m, count * sizeof(float)), cleanup);
 
     // Kopiowanie danych CPU -> GPU
-    CUDA_CHECK_GOTO(cudaMemcpy(handle->d_x, h_particles->x, count * sizeof(double), cudaMemcpyHostToDevice), cleanup);
-    CUDA_CHECK_GOTO(cudaMemcpy(handle->d_y, h_particles->y, count * sizeof(double), cudaMemcpyHostToDevice), cleanup);
-    CUDA_CHECK_GOTO(cudaMemcpy(handle->d_vx, h_particles->vx, count * sizeof(double), cudaMemcpyHostToDevice), cleanup);
-    CUDA_CHECK_GOTO(cudaMemcpy(handle->d_vy, h_particles->vy, count * sizeof(double), cudaMemcpyHostToDevice), cleanup);
-    CUDA_CHECK_GOTO(cudaMemcpy(handle->d_ax, h_particles->ax, count * sizeof(double), cudaMemcpyHostToDevice), cleanup);
-    CUDA_CHECK_GOTO(cudaMemcpy(handle->d_ay, h_particles->ay, count * sizeof(double), cudaMemcpyHostToDevice), cleanup);
-    CUDA_CHECK_GOTO(cudaMemcpy(handle->d_q, h_particles->q, count * sizeof(double), cudaMemcpyHostToDevice), cleanup);
-    CUDA_CHECK_GOTO(cudaMemcpy(handle->d_m, h_particles->m, count * sizeof(double), cudaMemcpyHostToDevice), cleanup);
+    CUDA_CHECK_GOTO(cudaMemcpy(handle->d_x, h_particles->x, count * sizeof(float), cudaMemcpyHostToDevice), cleanup);
+    CUDA_CHECK_GOTO(cudaMemcpy(handle->d_y, h_particles->y, count * sizeof(float), cudaMemcpyHostToDevice), cleanup);
+    CUDA_CHECK_GOTO(cudaMemcpy(handle->d_vx, h_particles->vx, count * sizeof(float), cudaMemcpyHostToDevice), cleanup);
+    CUDA_CHECK_GOTO(cudaMemcpy(handle->d_vy, h_particles->vy, count * sizeof(float), cudaMemcpyHostToDevice), cleanup);
+    CUDA_CHECK_GOTO(cudaMemcpy(handle->d_ax, h_particles->ax, count * sizeof(float), cudaMemcpyHostToDevice), cleanup);
+    CUDA_CHECK_GOTO(cudaMemcpy(handle->d_ay, h_particles->ay, count * sizeof(float), cudaMemcpyHostToDevice), cleanup);
+    CUDA_CHECK_GOTO(cudaMemcpy(handle->d_q, h_particles->q, count * sizeof(float), cudaMemcpyHostToDevice), cleanup);
+    CUDA_CHECK_GOTO(cudaMemcpy(handle->d_m, h_particles->m, count * sizeof(float), cudaMemcpyHostToDevice), cleanup);
 
     // Tworzenie tymczasowej struktury z wskaźnikami GPU
     tmp.count = count;
@@ -269,9 +370,9 @@ void freeParticlesOnGPU(gpu_particles_handle_t* handle)
 }
 
 // Parsowanie argumentów
-void parseInputArgs(int argc, char** argv, int* width, int* height, int* count) {
+void parseInputArgs(const int argc, char* const* argv, int* width, int* height, int* count) {
     int iarg1, iarg2, iarg3;
-    //double darg;
+    //float darg;
     switch (argc)
     {
     case 2:
@@ -302,7 +403,7 @@ void parseInputArgs(int argc, char** argv, int* width, int* height, int* count) 
 }
 
 // Ustawienie okna i OpenGL
-int setupWindowAndOpenGLContext(GLFWwindow** window, GLuint* texture, int width, int height) {
+int setupWindowAndOpenGLContext(GLFWwindow** window, GLuint* texture, const int width, const int height) {
     if (!glfwInit()) {
         return -1;
     }
@@ -330,7 +431,7 @@ int setupWindowAndOpenGLContext(GLFWwindow** window, GLuint* texture, int width,
     return 0;
 }
 
-void displayTextureFromPixels(GLuint* texture, uint8_t* pixels, int width, int height) {
+void displayTextureFromPixels(const GLuint* texture, const uint8_t* pixels, const int width, const int height) {
     glBindTexture(GL_TEXTURE_2D, *texture);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels);
 
@@ -346,12 +447,12 @@ void displayTextureFromPixels(GLuint* texture, uint8_t* pixels, int width, int h
 }
 
 // Obliczanie natężenia pola elektrycznego
-void calculateElectricField(double* field, int width, int height, i2xy_t* i2xy, particles_t* particles) {
+void calculateElectricField(float* field, const int width, const int height, const particles_t* particles) {
     // what do I do here actually?
 }
 
 // Mapowanie wartości natężenia pola elektrycznego na gradient
-void mapFieldValuesToPixels(double* field, int width, int height, uint8_t* pixels) {
+void mapFieldValuesToPixels(const float* field, const int width, const int height, uint8_t* pixels) {
     for (int i = 0; i < width * height; i++) {
         unsigned char r, g, b;
         value_to_color(field[i], CHARGE_ELECTRON, CHARGE_PROTON, &r, &g, &b);
@@ -362,7 +463,7 @@ void mapFieldValuesToPixels(double* field, int width, int height, uint8_t* pixel
 }
 
 // Nanoszenie cząstek do rysowanej tablicy pixeli
-void drawParticles(particles_t* particles, uint8_t* pixels, int width, int height) {
+void drawParticles(const particles_t* particles, uint8_t* pixels, const int width, const int height) {
     for (int i = 0; i < particles->count; i++)
     {
         int x = (int)particles->x[i];
@@ -389,18 +490,18 @@ void drawParticles(particles_t* particles, uint8_t* pixels, int width, int heigh
 // Obliczanie przyspieszeń wynikających z pola elektrycznego
 void updateAccelerations(particles_t* particles) {
     for (int i = 0; i < particles->count; i++) {
-        double ax = 0.0;
-        double ay = 0.0;
+        float ax = 0.0;
+        float ay = 0.0;
         for (int j = 0; j < particles->count; j++) {
             if (i == j) continue;
 
-            double dx = particles->x[i] - particles->x[j];
-            double dy = particles->y[i] - particles->y[j];
-            double dist2 = dx * dx + dy * dy + EPS;
-            double invDist = 1.0 / sqrt(dist2);
-            double invDist3 = invDist * invDist * invDist;
+            float dx = particles->x[i] - particles->x[j];
+            float dy = particles->y[i] - particles->y[j];
+            float dist2 = dx * dx + dy * dy + EPS;
+            float invDist = 1.0 / sqrt(dist2);
+            float invDist3 = invDist * invDist * invDist;
 
-            double f = K * particles->q[i] * particles->q[j] * invDist3 / particles->m[i];
+            float f = K * particles->q[i] * particles->q[j] * invDist3 / particles->m[i];
             ax += f * dx;
             ay += f * dy;
         }
@@ -411,7 +512,7 @@ void updateAccelerations(particles_t* particles) {
 }
 
 // Zmiana prędkości i położenia cząstek na podstawie przyspieszeń
-void moveParticles(particles_t* particles, int width, int height, double dt, double drag) {
+void moveParticles(particles_t* particles, const int width, const int height, const float dt, const float drag) {
     for (int i = 0; i < particles->count; i++) {
         // Opory ruchu
         particles->ax[i] -= drag * particles->vx[i];
@@ -450,21 +551,21 @@ void moveParticles(particles_t* particles, int width, int height, double dt, dou
 }
 
 // Konwersja wartości z zakresu [min, max] na podwójny gradient RGB (blue -> white -> red)
-static void value_to_color(double value, double min, double max, unsigned char* r, unsigned char* g, unsigned char* b) {
-    double t = (value - min) / (max - min);
-    t = std::clamp(t, 0.0, 1.0);
+static void value_to_color(const float value, const float min, const float max, unsigned char* r, unsigned char* g, unsigned char* b) {
+    float t = (value - min) / (max - min);
+    t = std::clamp(t, 0.0f, 1.0f);
 
-    if (t < 0.5) {
-        double f = 2 * t;
-        double ratio = 1 - sqrt(1 - f);
+    if (t < 0.5f) {
+        float f = 2 * t;
+        float ratio = 1.0f - sqrt(1.0f - f);
         unsigned char byte = ratio * 255;
         *r = byte;
         *g = byte;
         *b = 255;
     }
     else {
-        double f = 2 * (t - 0.5);
-        double ratio = 1 - sqrt(f);
+        float f = 2.0f * (t - 0.5f);
+        float ratio = 1.0f - sqrt(f);
         unsigned char byte = ratio * 255;
         *r = 255;
         *g = byte;
