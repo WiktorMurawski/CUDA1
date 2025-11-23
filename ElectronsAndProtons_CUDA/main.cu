@@ -9,8 +9,6 @@
 #include <ctime>
 #include <cmath>
 
-#include "cuda_buffer.cuh"
-#include "random_fill.cuh"
 #include "particles_t.h"
 #include "constants.h"
 #include "gpu_particles_handle_t.h"
@@ -44,154 +42,16 @@
 void value_to_color(const float value, const float min, const float max, unsigned char* r, unsigned char* g, unsigned char* b);
 int setupWindowAndOpenGLContext(GLFWwindow * *window, GLuint * texture, const int width, const int height);
 void parseInputArgs(const int argc, char* const* argv, int* width, int* height, int* count);
-void calculateElectricField(float* field, const int width, const int height, const particles_t * particles);
-void mapFieldValuesToPixels(const float* field, const int width, const int height, uint8_t * pixels);
-void drawParticles(const particles_t * particles, uint8_t * pixels, const int width, const int height);
 void updateAccelerations(particles_t * particles);
 void moveParticles(particles_t * particles, const int width, const int height, const float dt, const float drag);
-void displayTextureFromPixels(const GLuint * texture, const uint8_t * pixels, const int width, const int height);
+void drawTexture(const GLuint & texture);
 
 cudaError_t allocateAndCopyParticlesToDevice(const particles_t * h_particles, gpu_particles_handle_t * handle);
 void freeParticlesOnGPU(gpu_particles_handle_t * handle);
 
-// Konwersja wartości pola do koloru
-__device__ uchar4 value_to_color(float value, float min, float max)
-{
-    float t = (value - min) / (max - min);
-    t = fminf(fmaxf(t, 0.0f), 1.0f);
-    uchar r, g, b;
-
-    if (t < 0.5f) {
-        float f = 2.0f * t;
-        float ratio = 1.0f - sqrtf(1.0f - f);
-        uchar byte = (uchar)(ratio * 255.0f);
-        r = byte;
-        g = byte;
-        b = 255;
-    }
-    else {
-        float f = 2.0f * (t - 0.5f);
-        float ratio = 1.0f - sqrtf(f);
-        uchar byte = (uchar)(ratio * 255.0f);
-        r = 255;
-        g = byte;
-        b = byte;
-    }
-
-    return make_uchar4(r, g, b, 255);
-}
-
-__global__ void calculateFieldToTexture_KernelShared(const particles_t* particles, int width, int height, cudaSurfaceObject_t surface) {
-    extern __shared__ float sh[];
-    float* sh_x = sh;
-    float* sh_y = sh + blockDim.x;
-    float* sh_q = sh + 2 * blockDim.x;
-
-    int tid = threadIdx.x;
-    int i = blockIdx.x * blockDim.x + tid;
-    if (i >= width * height) return;
-
-    int x = i % width;
-    int y = i / width;
-
-    float value = 0.0f;
-
-    int nParticles = particles->count;
-    int batchSize = blockDim.x;
-
-    for (int b = 0; b < nParticles; b += batchSize) {
-        int idx = b + tid;
-        if (idx < nParticles) {
-            sh_x[tid] = particles->x[idx];
-            sh_y[tid] = particles->y[idx];
-            sh_q[tid] = particles->q[idx];
-        }
-        __syncthreads();
-
-        int limit = min(batchSize, nParticles - b);
-        for (int j = 0; j < limit; j++) {
-            float dx = x - sh_x[j];
-            float dy = y - sh_y[j];
-            float dist2 = dx * dx + dy * dy + 1e-3f;
-            value += sh_q[j] / dist2;
-        }
-        __syncthreads();
-    }
-
-    uchar4 color = value_to_color(value, -1.0f, 1.0f);
-    surf2Dwrite(color, surface, x * sizeof(uchar4), y);
-}
-
-// Kernel zapisujący pole bezpośrednio do tekstury (surface)
-__global__ void calculateFieldToTexture_Kernel(const particles_t* particles, int width, int height, cudaSurfaceObject_t surface)
-{
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= width * height) return;
-
-    int x = i % width;
-    int y = i / width;
-
-    float value = 0.0;
-    for (int j = 0; j < particles->count; j++) {
-        float dx = x - particles->x[j];
-        float dy = y - particles->y[j];
-        float dist2 = dx * dx + dy * dy + 1e-3;
-        value += particles->q[j] / dist2;
-    }
-
-    uchar4 color = value_to_color((float)value, -1.0f, 1.0f);
-    surf2Dwrite(color, surface, x * sizeof(uchar4), y);
-}
-
-__global__ void calculateElectricField_KernelShared(const particles_t* particles, const int width, const int height, float* field_out)
-{
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= width * height) return;
-
-    float value = 0;
-    for (int j = 0; j < particles->count; j++) {
-        int x = i % width;
-        int y = i / width;
-        float dx = x - particles->x[j];
-        float dy = y - particles->y[j];
-        float dist2 = dx * dx + dy * dy + EPS;
-        value += particles->q[j] / dist2;
-    }
-    field_out[i] = value;
-}
-
-// Funkcje OpenGL
-int setupWindowAndTexture(GLFWwindow * *window, GLuint * texture, int width, int height)
-{
-    if (!glfwInit()) return -1;
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-    *window = glfwCreateWindow(width, height, TITLE, nullptr, nullptr);
-    if (!*window) { glfwTerminate(); return -1; }
-
-    glfwMakeContextCurrent(*window);
-    glOrtho(0, 1, 0, 1, -1, 1);
-
-    glGenTextures(1, texture);
-    glBindTexture(GL_TEXTURE_2D, *texture);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
-    return 0;
-}
-
-void drawTexture(GLuint texture)
-{
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glClear(GL_COLOR_BUFFER_BIT);
-    glEnable(GL_TEXTURE_2D);
-    glBegin(GL_QUADS);
-    glTexCoord2f(0, 1); glVertex2f(0, 0);
-    glTexCoord2f(1, 1); glVertex2f(1, 0);
-    glTexCoord2f(1, 0); glVertex2f(1, 1);
-    glTexCoord2f(0, 0); glVertex2f(0, 1);
-    glEnd();
-    glDisable(GL_TEXTURE_2D);
-}
+__device__ uchar4 value_to_color(float value, float min, float max);
+__global__ void calculateFieldToTexture_KernelShared(const particles_t * particles, int width, int height, cudaSurfaceObject_t surface);
+__global__ void drawParticlesToTexture_Kernel(const particles_t * particles, int width, int height, cudaSurfaceObject_t surface);
 
 int main(int argc, char** argv)
 {
@@ -201,12 +61,12 @@ int main(int argc, char** argv)
     // Domyślne parametry symulacji
     int width = DEFAULT_WIDTH;
     int height = DEFAULT_HEIGHT;
-    int count = DEFAULT_PARTICLE_COUNT_CUDA;
+    int particleCount = DEFAULT_PARTICLE_COUNT_CUDA;
     float drag = DEFAULT_DRAG;
 
     // Parsowanie argumentów wejściowych
-    parseInputArgs(argc, argv, &width, &height, &count);
-    printf("Ustawienia symulacji:\nRozdzielczość = %d x %d\nLiczba cząstek = %d\nOpór = %f\n", width, height, count, drag);
+    parseInputArgs(argc, argv, &width, &height, &particleCount);
+    printf("Ustawienia symulacji:\nRozdzielczość = %d x %d\nLiczba cząstek = %d\nOpór = %f\n", width, height, particleCount, drag);
 
     // Otworzenie okna i ustawienie kontekstu OpenGL
     GLFWwindow* window;
@@ -221,7 +81,7 @@ int main(int argc, char** argv)
     uint8_t* pixels = new uint8_t[width * height * 3];
 
     // Inicjalizacja losowych cząstek
-    particles_t particles(count);
+    particles_t particles(particleCount);
     generateRandomlyMovingParticles(&particles, 0, width, 0, height, -2, +2, -2, +2);
 
     // Dodanie dużych cząsteczek
@@ -275,8 +135,8 @@ int main(int argc, char** argv)
 
         if (!paused)
         {
-            // Mapujemy teksturę do CUDA
-            CUDA_CHECK_RET(cudaGraphicsMapResources(1, &cudaTextureResource, 0));
+            // Mapowanie i tworzenie tekstury CUDA
+            CUDA_CHECK_RET(cudaGraphicsMapResources(1, &cudaTextureResource));
             cudaArray* textureArray;
             CUDA_CHECK_RET(cudaGraphicsSubResourceGetMappedArray(&textureArray, cudaTextureResource, 0, 0));
 
@@ -286,13 +146,21 @@ int main(int argc, char** argv)
             cudaSurfaceObject_t surface = 0;
             CUDA_CHECK_RET(cudaCreateSurfaceObject(&surface, &resDesc));
 
-            // Kernel
+            // Obliczanie pola elektrycznego i zapisywanie go do tekstury
             int threads = 256;
             int blocks = (width * height + threads - 1) / threads;
-            //calculateFieldToTexture_Kernel <<<blocks, threads >>> (gpu_particles_handle.d_struct, width, height, surface);
             calculateFieldToTexture_KernelShared <<<blocks, threads, 3 * threads * sizeof(float)>>> (gpu_particles_handle.d_struct, width, height, surface);
-            cudaDeviceSynchronize();
+            CUDA_CHECK_RET(cudaGetLastError());
+            CUDA_CHECK_RET(cudaDeviceSynchronize());
 
+            // Kernel nanoszący cząstki na teksturę
+            threads = 256;
+            blocks = (particleCount + threads - 1) / threads;
+            drawParticlesToTexture_Kernel <<<blocks, threads>>> (gpu_particles_handle.d_struct, width, height, surface);
+            CUDA_CHECK_RET(cudaGetLastError());
+            CUDA_CHECK_RET(cudaDeviceSynchronize());
+
+            // Czyszczenie
             CUDA_CHECK_RET(cudaDestroySurfaceObject(surface));
             CUDA_CHECK_RET(cudaGraphicsUnmapResources(1, &cudaTextureResource, 0));
 
@@ -317,7 +185,6 @@ int main(int argc, char** argv)
 
 cleanup:
     glfwTerminate();
-    //particles.cleanup();
     delete[] field;
     delete[] pixels;
     cudaGraphicsUnregisterResource(cudaTextureResource);
@@ -448,8 +315,7 @@ int setupWindowAndOpenGLContext(GLFWwindow** window, GLuint* texture, const int 
 
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     *window = glfwCreateWindow(width, height, TITLE, nullptr, nullptr);
-    if (!*window)
-    {
+    if (!*window) {
         glfwTerminate();
         return -1;
     }
@@ -469,10 +335,10 @@ int setupWindowAndOpenGLContext(GLFWwindow** window, GLuint* texture, const int 
     return 0;
 }
 
-void displayTextureFromPixels(const GLuint* texture, const uint8_t* pixels, const int width, const int height) {
-    glBindTexture(GL_TEXTURE_2D, *texture);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels);
-
+// Rysowanie tekstury na oknie
+void drawTexture(const GLuint& texture)
+{
+    glBindTexture(GL_TEXTURE_2D, texture);
     glClear(GL_COLOR_BUFFER_BIT);
     glEnable(GL_TEXTURE_2D);
     glBegin(GL_QUADS);
@@ -482,47 +348,6 @@ void displayTextureFromPixels(const GLuint* texture, const uint8_t* pixels, cons
     glTexCoord2f(0, 0); glVertex2f(0, 1);
     glEnd();
     glDisable(GL_TEXTURE_2D);
-}
-
-// Obliczanie natężenia pola elektrycznego
-void calculateElectricField(float* field, const int width, const int height, const particles_t* particles) {
-    // what do I do here actually?
-}
-
-// Mapowanie wartości natężenia pola elektrycznego na gradient
-void mapFieldValuesToPixels(const float* field, const int width, const int height, uint8_t* pixels) {
-    for (int i = 0; i < width * height; i++) {
-        unsigned char r, g, b;
-        value_to_color(field[i], CHARGE_ELECTRON, CHARGE_PROTON, &r, &g, &b);
-        pixels[i * 3 + 0] = r;
-        pixels[i * 3 + 1] = g;
-        pixels[i * 3 + 2] = b;
-    }
-}
-
-// Nanoszenie cząstek do rysowanej tablicy pixeli
-void drawParticles(const particles_t* particles, uint8_t* pixels, const int width, const int height) {
-    for (int i = 0; i < particles->count; i++)
-    {
-        int x = (int)particles->x[i];
-        int y = (int)particles->y[i];
-        if (x < 0 || x >= width) {
-            fprintf(stderr, "ERR: x = %d\n", x);
-            continue;
-        }
-        if (y < 0 || y >= height) {
-            fprintf(stderr, "ERR: y = %d\n", y);
-            continue;
-        }
-        int idx = (y * width + x) * 3;
-        if (idx < 0 || idx >= width * height * 3) {
-            fprintf(stderr, "ERR: idx = %d\n", idx);
-            continue;
-        }
-        pixels[idx] = 0;     // R
-        pixels[idx + 1] = 0; // G
-        pixels[idx + 2] = 0; // B
-    }
 }
 
 // Obliczanie przyspieszeń wynikających z pola elektrycznego
@@ -588,25 +413,86 @@ void moveParticles(particles_t* particles, const int width, const int height, co
     }
 }
 
-// Konwersja wartości z zakresu [min, max] na podwójny gradient RGB (blue -> white -> red)
-static void value_to_color(const float value, const float min, const float max, unsigned char* r, unsigned char* g, unsigned char* b) {
+// Konwersja wartości pola do koloru
+__device__ uchar4 value_to_color(float value, float min, float max)
+{
     float t = (value - min) / (max - min);
-    t = std::clamp(t, 0.0f, 1.0f);
+    t = fminf(fmaxf(t, 0.0f), 1.0f);
+    uchar r, g, b;
 
     if (t < 0.5f) {
-        float f = 2 * t;
-        float ratio = 1.0f - sqrt(1.0f - f);
-        unsigned char byte = ratio * 255;
-        *r = byte;
-        *g = byte;
-        *b = 255;
+        float f = 2.0f * t;
+        float ratio = 1.0f - sqrtf(1.0f - f);
+        uchar byte = (uchar)(ratio * 255.0f);
+        r = byte;
+        g = byte;
+        b = 255;
     }
     else {
         float f = 2.0f * (t - 0.5f);
-        float ratio = 1.0f - sqrt(f);
-        unsigned char byte = ratio * 255;
-        *r = 255;
-        *g = byte;
-        *b = byte;
+        float ratio = 1.0f - sqrtf(f);
+        uchar byte = (uchar)(ratio * 255.0f);
+        r = 255;
+        g = byte;
+        b = byte;
     }
+
+    return make_uchar4(r, g, b, 255);
+}
+
+// Kernel obliczający pole elektryczne i zapisujący je do tekstury
+__global__ void calculateFieldToTexture_KernelShared(const particles_t* particles, int width, int height, cudaSurfaceObject_t surface) {
+    extern __shared__ float sh[];
+    float* sh_x = sh;
+    float* sh_y = sh + blockDim.x;
+    float* sh_q = sh + 2 * blockDim.x;
+
+    int tid = threadIdx.x;
+    int i = blockIdx.x * blockDim.x + tid;
+    if (i >= width * height) return;
+
+    int x = i % width;
+    int y = i / width;
+
+    float value = 0.0f;
+
+    int nParticles = particles->count;
+    int batchSize = blockDim.x;
+
+    for (int b = 0; b < nParticles; b += batchSize) {
+        int idx = b + tid;
+        if (idx < nParticles) {
+            sh_x[tid] = particles->x[idx];
+            sh_y[tid] = particles->y[idx];
+            sh_q[tid] = particles->q[idx];
+        }
+        __syncthreads();
+
+        int limit = min(batchSize, nParticles - b);
+        for (int j = 0; j < limit; j++) {
+            float dx = x - sh_x[j];
+            float dy = y - sh_y[j];
+            float dist2 = dx * dx + dy * dy + 1e-3f;
+            value += sh_q[j] / dist2;
+        }
+        __syncthreads();
+    }
+
+    uchar4 color = value_to_color(value, CHARGE_ELECTRON, CHARGE_PROTON);
+    surf2Dwrite(color, surface, x * sizeof(uchar4), y);
+}
+
+// Kernel nanoszący cząstki na teksturę CUDA
+__global__ void drawParticlesToTexture_Kernel(const particles_t* particles, int width, int height, cudaSurfaceObject_t surface)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= particles->count) return;
+
+    int x = (int)particles->x[i];
+    int y = (int)particles->y[i];
+
+    if (x < 0 || x >= width || y < 0 || y >= height) return;
+
+    uchar4 black = make_uchar4(0, 0, 0, 255);
+    surf2Dwrite(black, surface, x * sizeof(uchar4), y);
 }
