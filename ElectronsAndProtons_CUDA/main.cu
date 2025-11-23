@@ -4,10 +4,8 @@
 #include <device_launch_parameters.h>
 #include <cuda_gl_interop.h>
 #include <algorithm>
-#include <cstdlib>
 #include <cstdio>
 #include <ctime>
-#include <cmath>
 
 #include "particles_t.h"
 #include "constants.h"
@@ -39,19 +37,18 @@
         }                                                       \
     } while (0)                                                 \
 
-void value_to_color(const float value, const float min, const float max, unsigned char* r, unsigned char* g, unsigned char* b);
 int setupWindowAndOpenGLContext(GLFWwindow * *window, GLuint * texture, const int width, const int height);
 void parseInputArgs(const int argc, char* const* argv, int* width, int* height, int* count);
-void updateAccelerations(particles_t * particles);
-void moveParticles(particles_t * particles, const int width, const int height, const float dt, const float drag);
-void drawTexture(const GLuint & texture);
 
 cudaError_t allocateAndCopyParticlesToDevice(const particles_t * h_particles, gpu_particles_handle_t * handle);
 void freeParticlesOnGPU(gpu_particles_handle_t * handle);
+void drawTexture(const GLuint & texture);
 
 __device__ uchar4 value_to_color(float value, float min, float max);
 __global__ void calculateFieldToTexture_KernelShared(const particles_t * particles, int width, int height, cudaSurfaceObject_t surface);
 __global__ void drawParticlesToTexture_Kernel(const particles_t * particles, int width, int height, cudaSurfaceObject_t surface);
+__global__ void updateAccelerations_KernelShared(const particles_t * particles);
+__global__ void moveParticles_Kernel(particles_t * particles, int width, int height, float dt, float drag);
 
 int main(int argc, char** argv)
 {
@@ -85,8 +82,10 @@ int main(int argc, char** argv)
     generateRandomlyMovingParticles(&particles, 0, width, 0, height, -2, +2, -2, +2);
 
     // Dodanie dużych cząsteczek
-    modifyParticleData(&particles, 0, width / 4.0, height / 4.0, 0, 0, 100 * CHARGE_PROTON, 1e9 * MASS_PROTON);
-    modifyParticleData(&particles, 1, width / 4.0 * 3, height / 4.0 * 3, 0, 0, 100 * CHARGE_ELECTRON, 1e9 * MASS_PROTON);
+    modifyParticleData(&particles, 0, width / 4.0, height / 4.0, 0, 0, 1e3 * CHARGE_ELECTRON, 1e9 * MASS_ELECTRON);
+    modifyParticleData(&particles, 1, width / 4.0 * 3, height / 4.0 * 3, 0, 0, 1e3 * CHARGE_ELECTRON, 1e9 * MASS_ELECTRON);
+    modifyParticleData(&particles, 2, width / 4.0, height / 4.0 * 3, 0, 0, 1000 * CHARGE_PROTON, 1e9 * MASS_PROTON);
+    modifyParticleData(&particles, 3, width / 4.0 * 3, height / 4.0, 0, 0, 1000 * CHARGE_PROTON, 1e9 * MASS_PROTON);
 
     uint64_t frames = 0;
     float frameRefreshInterval = 0.2;
@@ -147,16 +146,30 @@ int main(int argc, char** argv)
             CUDA_CHECK_RET(cudaCreateSurfaceObject(&surface, &resDesc));
 
             // Obliczanie pola elektrycznego i zapisywanie go do tekstury
-            int threads = 256;
+            int threads = 512;
             int blocks = (width * height + threads - 1) / threads;
             calculateFieldToTexture_KernelShared <<<blocks, threads, 3 * threads * sizeof(float)>>> (gpu_particles_handle.d_struct, width, height, surface);
             CUDA_CHECK_RET(cudaGetLastError());
             CUDA_CHECK_RET(cudaDeviceSynchronize());
 
             // Kernel nanoszący cząstki na teksturę
-            threads = 256;
+            threads = 512;
             blocks = (particleCount + threads - 1) / threads;
             drawParticlesToTexture_Kernel <<<blocks, threads>>> (gpu_particles_handle.d_struct, width, height, surface);
+            CUDA_CHECK_RET(cudaGetLastError());
+            CUDA_CHECK_RET(cudaDeviceSynchronize());
+
+            // Kernel obliczający przyspieszenia cząstek
+            threads = 512;
+            blocks = (particleCount + threads - 1) / threads;
+            updateAccelerations_KernelShared <<<blocks, threads, 3 * threads * sizeof(float)>>> (gpu_particles_handle.d_struct);
+            CUDA_CHECK_RET(cudaGetLastError());
+            CUDA_CHECK_RET(cudaDeviceSynchronize());
+
+            // Kernel przesuwający cząstki
+            threads = 512;
+            blocks = (particleCount + threads - 1) / threads;
+            moveParticles_Kernel<<<blocks, threads>>> (gpu_particles_handle.d_struct, width, height, dt, drag);
             CUDA_CHECK_RET(cudaGetLastError());
             CUDA_CHECK_RET(cudaDeviceSynchronize());
 
@@ -189,6 +202,67 @@ cleanup:
     delete[] pixels;
     cudaGraphicsUnregisterResource(cudaTextureResource);
     freeParticlesOnGPU(&gpu_particles_handle);
+    return 0;
+}
+
+// Parsowanie argumentów
+void parseInputArgs(const int argc, char* const* argv, int* width, int* height, int* count) {
+    int iarg1, iarg2, iarg3;
+    //float darg;
+    switch (argc)
+    {
+    case 2:
+        iarg1 = atoi(argv[1]);
+        if (iarg1 > 0) *count = iarg1;
+        break;
+    case 3:
+        iarg1 = atoi(argv[1]);
+        iarg2 = atoi(argv[2]);
+        if (iarg1 > 0 && iarg2 > 0) {
+            *width = iarg1;
+            *height = iarg2;
+        }
+        break;
+    case 4:
+        iarg1 = atoi(argv[1]);
+        iarg2 = atoi(argv[2]);
+        iarg3 = atoi(argv[3]);
+        if (iarg1 > 0 && iarg2 > 0 && iarg3 > 0) {
+            *width = iarg1;
+            *height = iarg2;
+            *count = iarg3;
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+// Ustawienie okna i OpenGL
+int setupWindowAndOpenGLContext(GLFWwindow** window, GLuint* texture, const int width, const int height) {
+    if (!glfwInit()) {
+        return -1;
+    }
+
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    *window = glfwCreateWindow(width, height, TITLE, nullptr, nullptr);
+    if (!*window) {
+        glfwTerminate();
+        return -1;
+    }
+
+    glfwMakeContextCurrent(*window);
+    glfwSwapInterval(0);
+    glOrtho(0, 1, 0, 1, -1, 1);
+
+    glGenTextures(1, texture);
+    glBindTexture(GL_TEXTURE_2D, *texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
     return 0;
 }
 
@@ -261,7 +335,6 @@ cleanup:
 // Funkcja zwalniająca pamięć GPU zajmowaną przez cząstki
 void freeParticlesOnGPU(gpu_particles_handle_t* handle)
 {
-    printf("cleanup CUDA memory\n");
     cudaFree(handle->d_x);
     cudaFree(handle->d_y);
     cudaFree(handle->d_vx);
@@ -271,68 +344,6 @@ void freeParticlesOnGPU(gpu_particles_handle_t* handle)
     cudaFree(handle->d_q);
     cudaFree(handle->d_m);
     cudaFree(handle->d_struct);
-    printf("done\n");
-}
-
-// Parsowanie argumentów
-void parseInputArgs(const int argc, char* const* argv, int* width, int* height, int* count) {
-    int iarg1, iarg2, iarg3;
-    //float darg;
-    switch (argc)
-    {
-    case 2:
-        iarg1 = atoi(argv[1]);
-        if (iarg1 > 0) *count = iarg1;
-        break;
-    case 3:
-        iarg1 = atoi(argv[1]);
-        iarg2 = atoi(argv[2]);
-        if (iarg1 > 0 && iarg2 > 0) {
-            *width = iarg1;
-            *height = iarg2;
-        }
-        break;
-    case 4:
-        iarg1 = atoi(argv[1]);
-        iarg2 = atoi(argv[2]);
-        iarg3 = atoi(argv[3]);
-        if (iarg1 > 0 && iarg2 > 0 && iarg3 > 0) {
-            *width = iarg1;
-            *height = iarg2;
-            *count = iarg3;
-        }
-        break;
-    default:
-        break;
-    }
-}
-
-// Ustawienie okna i OpenGL
-int setupWindowAndOpenGLContext(GLFWwindow** window, GLuint* texture, const int width, const int height) {
-    if (!glfwInit()) {
-        return -1;
-    }
-
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-    *window = glfwCreateWindow(width, height, TITLE, nullptr, nullptr);
-    if (!*window) {
-        glfwTerminate();
-        return -1;
-    }
-
-    glfwMakeContextCurrent(*window);
-    glfwSwapInterval(0);
-    glOrtho(0, 1, 0, 1, -1, 1);
-
-    glGenTextures(1, texture);
-    glBindTexture(GL_TEXTURE_2D, *texture);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
-    return 0;
 }
 
 // Rysowanie tekstury na oknie
@@ -350,70 +361,7 @@ void drawTexture(const GLuint& texture)
     glDisable(GL_TEXTURE_2D);
 }
 
-// Obliczanie przyspieszeń wynikających z pola elektrycznego
-void updateAccelerations(particles_t* particles) {
-    for (int i = 0; i < particles->count; i++) {
-        float ax = 0.0;
-        float ay = 0.0;
-        for (int j = 0; j < particles->count; j++) {
-            if (i == j) continue;
-
-            float dx = particles->x[i] - particles->x[j];
-            float dy = particles->y[i] - particles->y[j];
-            float dist2 = dx * dx + dy * dy + EPS;
-            float invDist = 1.0 / sqrt(dist2);
-            float invDist3 = invDist * invDist * invDist;
-
-            float f = K * particles->q[i] * particles->q[j] * invDist3 / particles->m[i];
-            ax += f * dx;
-            ay += f * dy;
-        }
-
-        particles->ax[i] = ax;
-        particles->ay[i] = ay;
-    }
-}
-
-// Zmiana prędkości i położenia cząstek na podstawie przyspieszeń
-void moveParticles(particles_t* particles, const int width, const int height, const float dt, const float drag) {
-    for (int i = 0; i < particles->count; i++) {
-        // Opory ruchu
-        particles->ax[i] -= drag * particles->vx[i];
-        particles->ay[i] -= drag * particles->vy[i];
-
-        // --- Forward Euler ---
-        //particles->vx[i] += particles->ax[i] * dt;
-        //particles->vy[i] += particles->ay[i] * dt;
-        //particles->x[i] += particles->vx[i] * dt;
-        //particles->y[i] += particles->vy[i] * dt;
-
-        // --- Semi-Implicit Euler ---
-        particles->vx[i] += particles->ax[i] * dt;
-        particles->vy[i] += particles->ay[i] * dt;
-        particles->x[i] += (particles->vx[i] + 0.5 * (particles->ax[i]) * dt) * dt;
-        particles->y[i] += (particles->vy[i] + 0.5 * (particles->ay[i]) * dt) * dt;
-
-        // Odbicia
-        if (particles->x[i] < 0 && particles->vx[i] < 0) {
-            particles->x[i] = 0;
-            particles->vx[i] *= -1;
-        }
-        if (particles->x[i] > width - 1 && particles->vx[i] > 0) {
-            particles->x[i] = width - 1;
-            particles->vx[i] *= -1;
-        }
-        if (particles->y[i] < 0 && particles->vy[i] < 0) {
-            particles->y[i] = 0;
-            particles->vy[i] *= -1;
-        }
-        if (particles->y[i] > height - 1 && particles->vy[i] > 0) {
-            particles->y[i] = height - 1;
-            particles->vy[i] *= -1;
-        }
-    }
-}
-
-// Konwersja wartości pola do koloru
+// Konwersja wartości pola do koloru na GPU
 __device__ uchar4 value_to_color(float value, float min, float max)
 {
     float t = (value - min) / (max - min);
@@ -495,4 +443,105 @@ __global__ void drawParticlesToTexture_Kernel(const particles_t* particles, int 
 
     uchar4 black = make_uchar4(0, 0, 0, 255);
     surf2Dwrite(black, surface, x * sizeof(uchar4), y);
+}
+
+// Kernel obliczający przyspieszenia wynikające z oddziaływań cząstek
+__global__ void updateAccelerations_KernelShared(const particles_t* particles)
+{
+    int tid = threadIdx.x;
+    int i = blockIdx.x * blockDim.x + tid;
+
+    if (i >= particles->count) return;
+
+    float xi = particles->x[i];
+    float yi = particles->y[i];
+    float qi = particles->q[i];
+    float mi = particles->m[i];
+
+    float ax = 0.0f;
+    float ay = 0.0f;
+
+    int block_size = blockDim.x;
+    extern __shared__ float sh[];
+    float* sh_x = sh;
+    float* sh_y = sh + block_size;
+    float* sh_q = sh + 2 * block_size;
+
+    int nParticles = particles->count;
+
+    for (int b = 0; b < nParticles; b += block_size) {
+        int idx = b + tid;
+
+        if (idx < nParticles) {
+            sh_x[tid] = particles->x[idx];
+            sh_y[tid] = particles->y[idx];
+            sh_q[tid] = particles->q[idx];
+        }
+        __syncthreads();
+
+        int limit = min(block_size, nParticles - b);
+        for (int j = 0; j < limit; j++) {
+            if (i == b + j) continue;
+            float dx = xi - sh_x[j];
+            float dy = yi - sh_y[j];
+            float dist2 = dx * dx + dy * dy + EPS;
+            float invDist = rsqrtf(dist2);
+            float invDist3 = invDist * invDist * invDist;
+            float f = K * qi * sh_q[j] * invDist3 / mi;
+            ax += f * dx;
+            ay += f * dy;
+        }
+        __syncthreads();
+    }
+
+    particles->ax[i] = ax;
+    particles->ay[i] = ay;
+}
+
+__global__ void moveParticles_Kernel(particles_t* particles, int width, int height, float dt, float drag)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= particles->count) return;
+
+    float x = particles->x[i];
+    float y = particles->y[i];
+    float vx = particles->vx[i];
+    float vy = particles->vy[i];
+    float ax = particles->ax[i];
+    float ay = particles->ay[i];
+
+    // Opory ruchu
+    ax -= drag * vx;
+    ay -= drag * vy;
+
+    // Semi-Implicit Euler
+    vx += ax * dt;
+    vy += ay * dt;
+    x += vx * dt;
+    y += vy * dt;
+
+    // Odbicia
+    if (x < 0.f && vx < 0.f) {
+        x = 0.f;
+        vx *= -1.f;
+    }
+    if (x > width - 1.f && vx > 0.f) {
+        x = width - 1.f;
+        vx *= -1.f;
+    }
+    if (y < 0.f && vy < 0.f) {
+        y = 0.f;
+        vy *= -1.f;
+    }
+    if (y > height - 1.f && vy > 0.f) {
+        y = height - 1.f;
+        vy *= -1.f;
+    }
+
+    particles->x[i] = x;
+    particles->y[i] = y;
+    particles->vx[i] = vx;
+    particles->vy[i] = vy;
+    particles->ax[i] = ax;
+    particles->ay[i] = ay;
 }

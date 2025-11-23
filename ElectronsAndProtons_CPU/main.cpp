@@ -50,8 +50,10 @@ int main(int argc, char** argv) {
     generateRandomlyMovingParticles(&particles, 0, width, 0, height, -2, +2, -2, +2);
 
     // Dodanie dużych cząsteczek
-    modifyParticleData(&particles, 0, width / 4.0, height / 4.0, 0, 0, 100 * CHARGE_PROTON, 1e9 * MASS_PROTON);
-    modifyParticleData(&particles, 1, width / 4.0 * 3, height / 4.0 * 3, 0, 0, 100 * CHARGE_ELECTRON, 1e9 * MASS_PROTON);
+    modifyParticleData(&particles, 0, width / 4.0, height / 4.0, 0, 0, 1e3 * CHARGE_ELECTRON, 1e9 * MASS_ELECTRON);
+    modifyParticleData(&particles, 1, width / 4.0 * 3, height / 4.0 * 3, 0, 0, 1e3 * CHARGE_ELECTRON, 1e9 * MASS_ELECTRON);
+    modifyParticleData(&particles, 2, width / 4.0, height / 4.0 * 3, 0, 0, 1000 * CHARGE_PROTON, 1e9 * MASS_PROTON);
+    modifyParticleData(&particles, 3, width / 4.0 * 3, height / 4.0, 0, 0, 1000 * CHARGE_PROTON, 1e9 * MASS_PROTON);
 
     uint64_t frames = 0;
     float frameRefreshInterval = 0.2;
@@ -268,39 +270,45 @@ void updateAccelerations(particles_t* particles){
 // Zmiana prędkości i położenia cząstek na podstawie przyspieszeń
 void moveParticles(particles_t* particles, const int width, const int height, const float dt, const float drag) {
     for (int i = 0; i < particles->count; i++) {
+        float x = particles->x[i];
+        float y = particles->y[i];
+        float vx = particles->vx[i];
+        float vy = particles->vy[i];
+        float ax = particles->ax[i];
+        float ay = particles->ay[i];
+
         // Opory ruchu
-        particles->ax[i] -= drag * particles->vx[i];
-        particles->ay[i] -= drag * particles->vy[i];
+        ax -= drag * vx;
+        ay -= drag * vy;
 
-        // --- Forward Euler ---
-        //particles->vx[i] += particles->ax[i] * dt;
-        //particles->vy[i] += particles->ay[i] * dt;
-        //particles->x[i] += particles->vx[i] * dt;
-        //particles->y[i] += particles->vy[i] * dt;
-
-        // --- Semi-Implicit Euler ---
-        particles->vx[i] += particles->ax[i] * dt;
-        particles->vy[i] += particles->ay[i] * dt;
-        particles->x[i] += (particles->vx[i] + 0.5 * (particles->ax[i]) * dt) * dt;
-        particles->y[i] += (particles->vy[i] + 0.5 * (particles->ay[i]) * dt) * dt;
+        // Euler półjawny
+        vx += ax * dt;
+        vy += ay * dt;
+        x += vx * dt;
+        y += vy * dt;
 
         // Odbicia
-        if (particles->x[i] < 0 && particles->vx[i] < 0) { 
-            particles->x[i] = 0;
-            particles->vx[i] *= -1; 
+        if (x < 0 && vx < 0) { 
+            x = 0;
+            vx *= -1; 
         }
-        if (particles->x[i] > width - 1 && particles->vx[i] > 0) { 
-            particles->x[i] = width - 1; 
-            particles->vx[i] *= -1; 
+        if (x > width - 1 && vx > 0) { 
+            x = width - 1; 
+            vx *= -1; 
         }
-        if (particles->y[i] < 0 && particles->vy[i] < 0) { 
-            particles->y[i] = 0; 
-            particles->vy[i] *= -1; 
+        if (y < 0 && vy < 0) { 
+            y = 0; 
+            vy *= -1; 
         }
-        if (particles->y[i] > height - 1 && particles->vy[i] > 0) { 
-            particles->y[i] = height - 1;
-            particles->vy[i] *= -1; 
+        if (y > height - 1 && vy > 0) { 
+            y = height - 1;
+            vy *= -1; 
         }
+
+        particles->x[i] = x;
+        particles->y[i] = y;
+        particles->vx[i] = vx;
+        particles->vy[i] = vy;
     }
 }
 
