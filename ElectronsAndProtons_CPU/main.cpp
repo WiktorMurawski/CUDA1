@@ -12,7 +12,9 @@
 
 void parseInputArgs(const int argc, char* const* argv, int* width, int* height, int* count);
 int setupWindowAndOpenGLContext(GLFWwindow** window, GLuint* texture, const int width, const int height);
+
 void displayTextureFromPixels(const GLuint* texture, const uint8_t* pixels, const int width, const int height);
+
 void calculateElectricField(float* field, const int width, const int height, const particles_t* particles);
 void mapFieldValuesToPixels(const float* field, const int width, const int height, uint8_t* pixels);
 void drawParticles(const particles_t* particles, uint8_t* pixels, const int width, const int height);
@@ -78,6 +80,9 @@ int main(int argc, char** argv) {
                 paused = !paused;
                 spaceWasPressed = true;
             }
+        }
+        else if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+            break;
         }
         else {
             spaceWasPressed = false;
@@ -181,7 +186,7 @@ int setupWindowAndOpenGLContext(GLFWwindow** window, GLuint* texture, int width,
 
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
     return 0;
 }
 
@@ -313,7 +318,7 @@ void moveParticles(particles_t* particles, const int width, const int height, co
 }
 
 // Konwersja wartości z zakresu [min, max] na podwójny gradient RGB (blue -> white -> red)
-static void value_to_color(const float value, const float min, const float max, unsigned char* r, unsigned char* g, unsigned char* b) {
+void value_to_color(const float value, const float min, const float max, unsigned char* r, unsigned char* g, unsigned char* b) {
     float t = (value - min) / (max - min);
     t = std::clamp(t, 0.0f, 1.0f);
 

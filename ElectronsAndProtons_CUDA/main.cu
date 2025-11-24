@@ -73,10 +73,6 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    // Inicjalizacja tablic reprezentujących pole i piksele
-    float* field = new float[width * height];
-    uint8_t* pixels = new uint8_t[width * height * 3];
-
     // Inicjalizacja losowych cząstek
     particles_t particles(particleCount);
     generateRandomlyMovingParticles(&particles, 0, width, 0, height, -2, +2, -2, +2);
@@ -95,19 +91,18 @@ int main(int argc, char** argv)
     bool paused = false;
     bool spaceWasPressed = false;
 
-    // CUDA-OpenGL interop
+    // CUDA-OpenGL
     cudaGraphicsResource* cudaTextureResource = nullptr;
     cudaError_t err = CUDA_CHECK_RET(cudaGraphicsGLRegisterImage(&cudaTextureResource, texture, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
-    if (err != cudaSuccess)
-    {
+    if (err != cudaSuccess) {
         fprintf(stderr, "CUDA error during registering texture");
         goto cleanup;
     }
 
+    // Alokacja i kopiowanie cząstek na GPU
     gpu_particles_handle_t gpu_particles_handle;
     err = allocateAndCopyParticlesToDevice(&particles, &gpu_particles_handle);
-    if (err != cudaSuccess)
-    {
+    if (err != cudaSuccess) {
         fprintf(stderr, "CUDA error during allocation and copying of particles");
         goto cleanup;
     }
@@ -127,6 +122,9 @@ int main(int argc, char** argv)
                 paused = !paused;
                 spaceWasPressed = true;
             }
+        }
+        else if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+            break;
         }
         else {
             spaceWasPressed = false;
@@ -198,8 +196,6 @@ int main(int argc, char** argv)
 
 cleanup:
     glfwTerminate();
-    delete[] field;
-    delete[] pixels;
     cudaGraphicsUnregisterResource(cudaTextureResource);
     freeParticlesOnGPU(&gpu_particles_handle);
     return 0;
