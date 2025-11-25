@@ -531,21 +531,21 @@ __global__ void moveParticles_Kernel(particles_t* particles, int width, int heig
     y += vy * dt;
 
     // Odbicia
-    if (x < 0.f && vx < 0.f) {
-        x = 0.f;
-        vx *= -1.f;
+    if (x < 0.0f && vx < 0.0f) {
+        x = 0.0f;
+        vx *= -1.0f;
     }
-    if (x > width - 1.f && vx > 0.f) {
-        x = width - 1.f;
-        vx *= -1.f;
+    if (x > width - 1.0f && vx > 0.0f) {
+        x = width - 1.0f;
+        vx *= -1.0f;
     }
-    if (y < 0.f && vy < 0.f) {
-        y = 0.f;
-        vy *= -1.f;
+    if (y < 0.0f && vy < 0.0f) {
+        y = 0.0f;
+        vy *= -1.0f;
     }
-    if (y > height - 1.f && vy > 0.f) {
-        y = height - 1.f;
-        vy *= -1.f;
+    if (y > height - 1.0f && vy > 0.0f) {
+        y = height - 1.0f;
+        vy *= -1.0f;
     }
 
     particles->x[i] = x;
