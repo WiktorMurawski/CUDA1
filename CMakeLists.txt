@@ -9,10 +9,14 @@ project(ElectronsAndProtons VERSION 1.0 LANGUAGES CXX CUDA)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
+# Enable CUDA
+enable_language(CUDA)
+find_package(CUDAToolkit REQUIRED)
+
 # Set CUDA properties
 set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
-# --- portable CUDA architecture selection ---
+# Portable CUDA architecture selection
 if (NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
     if (CUDAToolkit_VERSION VERSION_LESS 11.0)
         # Very old toolkit (Kepler through Turing)
@@ -24,13 +28,10 @@ if (NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
         # CUDA 12+ (Kepler dropped, Hopper introduced)
         set(CMAKE_CUDA_ARCHITECTURES "50-real;60-real;70-real;75-real;86-real;89-real;90-virtual")
     endif()
-
-    message(STATUS "Detected CUDA Toolkit ${CUDAToolkit_VERSION}, using architectures: ${CMAKE_CUDA_ARCHITECTURES}")
 endif()
+message(STATUS "Detected CUDA Toolkit ${CUDAToolkit_VERSION}, using architectures: ${CMAKE_CUDA_ARCHITECTURES}")
 
-# Enable CUDA
-enable_language(CUDA)
-find_package(CUDAToolkit REQUIRED)
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Wno-deprecated-gpu-targets")
 
 # Add include directories for CUDA
 include_directories(${CUDA_INCLUDE_DIRS})
@@ -48,14 +49,14 @@ include(FetchContent)
 FetchContent_Declare(
         glfw
         GIT_REPOSITORY https://github.com/glfw/glfw.git
-        GIT_TAG 3.4 # Use the specific version you want (e.g., latest stable tag)
+        GIT_TAG 3.4 
 )
 FetchContent_MakeAvailable(glfw)
 
 # OpenGL (cross-platform)
 find_package(OpenGL REQUIRED)
 
-# Wszystkie wspólne pliki źródłowe w shared/src
+# Add shared source files from shared/src
 file(GLOB SHARED_SRC
     "${CMAKE_SOURCE_DIR}/shared/src/*.cpp"
     "${CMAKE_SOURCE_DIR}/shared/src/*.cu"
