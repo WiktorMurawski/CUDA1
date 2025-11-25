@@ -91,11 +91,25 @@ int main(int argc, char** argv)
     bool paused = false;
     bool spaceWasPressed = false;
 
-    // CUDA-OpenGL
     cudaGraphicsResource* cudaTextureResource = nullptr;
-    cudaError_t err = CUDA_CHECK_RET(cudaGraphicsGLRegisterImage(&cudaTextureResource, texture, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
+    
+    int deviceCount = 0;
+    cudaError_t err = CUDA_CHECK_RET(cudaGetDeviceCount(&deviceCount));
+    if (deviceCount == 0){
+        fprintf(stderr, "No CUDA devices found\n");
+        goto cleanup;
+    }
+
+    err = CUDA_CHECK_RET(cudaSetDevice(0));
     if (err != cudaSuccess) {
-        fprintf(stderr, "CUDA error during registering texture");
+        fprintf(stderr, "CUDA error while setting device\n");
+        goto cleanup;
+    }
+
+    // CUDA-OpenGL
+    err = CUDA_CHECK_RET(cudaGraphicsGLRegisterImage(&cudaTextureResource, texture, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsSurfaceLoadStore));
+    if (err != cudaSuccess) {
+        fprintf(stderr, "CUDA error during registering texture\n");
         goto cleanup;
     }
 
@@ -103,7 +117,7 @@ int main(int argc, char** argv)
     gpu_particles_handle_t gpu_particles_handle;
     err = allocateAndCopyParticlesToDevice(&particles, &gpu_particles_handle);
     if (err != cudaSuccess) {
-        fprintf(stderr, "CUDA error during allocation and copying of particles");
+        fprintf(stderr, "CUDA error during allocation and copying of particles\n");
         goto cleanup;
     }
     particles.cleanup();
