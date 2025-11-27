@@ -243,9 +243,9 @@ void parseInputArgs(const int argc, char* const* argv, int* width, int* height, 
         iarg2 = atoi(argv[2]);
         iarg3 = atoi(argv[3]);
         if (iarg1 > 0 && iarg2 > 0 && iarg3 > 0) {
-            *width = iarg1;
-            *height = iarg2;
-            *count = iarg3;
+            *count = iarg1;
+            *width = iarg2;
+            *height = iarg3;
         }
         break;
     default:
