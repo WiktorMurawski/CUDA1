@@ -9,7 +9,6 @@
 
 #include "particles_t.h"
 #include "constants.h"
-#include "gpu_particles_handle_t.h"
 
 #define TITLE "ElectronsAndProtons_CUDA"
 
@@ -36,6 +35,12 @@
             goto label;                                         \
         }                                                       \
     } while (0)                                                 \
+
+// Uchwyt do cząstek na GPU
+struct gpu_particles_handle_t {
+    particles_t* d_struct;
+    float* d_x, * d_y, * d_vx, * d_vy, * d_ax, * d_ay, * d_q, * d_m;
+};
 
 int setupWindowAndOpenGLContext(GLFWwindow * *window, GLuint * texture, const int width, const int height);
 void parseInputArgs(const int argc, char* const* argv, int* width, int* height, int* count);
@@ -524,7 +529,7 @@ __global__ void moveParticles_Kernel(particles_t* particles, int width, int heig
     ax -= drag * vx;
     ay -= drag * vy;
 
-    // Semi-Implicit Euler
+    // Metoda Eulera-Cromera
     vx += ax * dt;
     vy += ay * dt;
     x += vx * dt;

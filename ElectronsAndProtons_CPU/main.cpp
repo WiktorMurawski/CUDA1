@@ -286,7 +286,7 @@ void moveParticles(particles_t* particles, const int width, const int height, co
         ax -= drag * vx;
         ay -= drag * vy;
 
-        // Euler półjawny
+        // Metoda Eulera-Cromera
         vx += ax * dt;
         vy += ay * dt;
         x += vx * dt;
