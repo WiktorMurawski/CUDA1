@@ -16,14 +16,14 @@
 #define uchar unsigned char
 
 // Makro wypisujące informację o błędzie i zwracające go
-#define CUDA_CHECK_RET(call)                                      \
-    ([&]() -> cudaError_t {                                       \
-        cudaError_t err = (call);                                 \
-        if (err != cudaSuccess) {                                 \
-            fprintf(stderr, "CUDA error %s at %s:%d\n",           \
-                cudaGetErrorString(err), __FILE__, __LINE__);     \
-        }                                                         \
-        return err;                                               \
+#define CUDA_CHECK_RET(call)                                    \
+    ([&]() -> cudaError_t {                                     \
+        cudaError_t err = (call);                               \
+        if (err != cudaSuccess) {                               \
+            fprintf(stderr, "CUDA error %s at %s:%d\n",         \
+                cudaGetErrorString(err), __FILE__, __LINE__);   \
+        }                                                       \
+        return err;                                             \
     })()
 
 // Makro wypisujące informację o błędzie i skaczące do etykiety w przypadku błędu
