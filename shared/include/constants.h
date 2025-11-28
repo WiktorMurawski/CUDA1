@@ -1,5 +1,5 @@
 ﻿#define EPS 1e-2f
-#define K 5e1f // stała elektrostatyczna, wprost proporcjonalna do siły z jaką cząstki oddziałują na siebie
+#define K 3e1f // stała elektrostatyczna, wprost proporcjonalna do siły z jaką cząstki oddziałują na siebie
 #define MASS_PROTON 1.0f
 #define MASS_ELECTRON 1.0f
 #define CHARGE_PROTON 1.0f

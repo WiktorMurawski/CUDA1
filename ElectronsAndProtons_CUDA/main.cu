@@ -14,6 +14,8 @@
 
 #define uchar unsigned char
 
+#define DEFAULT_THREAD_COUNT 256
+
 // Makro wypisujące informację o błędzie i zwracające go
 #define CUDA_CHECK_RET(call)                                    \
     ([&]() -> cudaError_t {                                     \
@@ -163,28 +165,28 @@ int main(int argc, char** argv)
             CUDA_CHECK_RET(cudaCreateSurfaceObject(&surface, &resDesc));
 
             // Obliczanie pola elektrycznego i zapisywanie go do tekstury
-            int threads = 512;
+            int threads = DEFAULT_THREAD_COUNT;
             int blocks = (width * height + threads - 1) / threads;
             calculateFieldToTexture_KernelShared <<<blocks, threads, 3 * threads * sizeof(float)>>> (gpu_particles_handle.d_struct, width, height, surface);
             CUDA_CHECK_RET(cudaGetLastError());
             CUDA_CHECK_RET(cudaDeviceSynchronize());
 
             // Kernel nanoszący cząstki na teksturę
-            threads = 512;
+            threads = DEFAULT_THREAD_COUNT;
             blocks = (particleCount + threads - 1) / threads;
             drawParticlesToTexture_Kernel <<<blocks, threads>>> (gpu_particles_handle.d_struct, width, height, surface);
             CUDA_CHECK_RET(cudaGetLastError());
             CUDA_CHECK_RET(cudaDeviceSynchronize());
 
             // Kernel obliczający przyspieszenia cząstek
-            threads = 512;
+            threads = DEFAULT_THREAD_COUNT;
             blocks = (particleCount + threads - 1) / threads;
             updateAccelerations_KernelShared <<<blocks, threads, 3 * threads * sizeof(float)>>> (gpu_particles_handle.d_struct);
             CUDA_CHECK_RET(cudaGetLastError());
             CUDA_CHECK_RET(cudaDeviceSynchronize());
 
             // Kernel przesuwający cząstki
-            threads = 512;
+            threads = DEFAULT_THREAD_COUNT;
             blocks = (particleCount + threads - 1) / threads;
             moveParticles_Kernel<<<blocks, threads>>> (gpu_particles_handle.d_struct, width, height, dt, drag);
             CUDA_CHECK_RET(cudaGetLastError());
