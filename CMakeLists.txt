@@ -1,5 +1,5 @@
 ﻿# CMake minimum version
-cmake_minimum_required(VERSION 3.18)
+cmake_minimum_required(VERSION 3.24)
 cmake_policy(SET CMP0104 NEW) # For CUDA architectures
 
 # Set project name and version
@@ -16,19 +16,9 @@ find_package(CUDAToolkit REQUIRED)
 # Set CUDA properties
 set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
-# Portable CUDA architecture selection
-#if (NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-    if (CUDAToolkit_VERSION VERSION_LESS 11.0)
-        # Very old toolkit (Kepler through Turing)
-        set(CMAKE_CUDA_ARCHITECTURES "30-real;35-real;52-real;50-real;60-real;70-real;75-real")
-    elseif (CUDAToolkit_VERSION VERSION_LESS 12.0)
-        # CUDA 11.x (Kepler still supported)
-        set(CMAKE_CUDA_ARCHITECTURES "35-real;50-real;52-real;60-real;70-real;75-real;86-real;89-real")
-    else()
-        # CUDA 12+ (Kepler dropped, Hopper introduced)
-        set(CMAKE_CUDA_ARCHITECTURES "50-real;52-real;60-real;70-real;75-real;86-real;89-real;90-virtual")
-    endif()
-#endif()
+
+# CUDA architecture selection
+set(CMAKE_CUDA_ARCHITECTURES native)
 message(STATUS "Detected CUDA Toolkit ${CUDAToolkit_VERSION}, using architectures: ${CMAKE_CUDA_ARCHITECTURES}")
 
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Wno-deprecated-gpu-targets")
@@ -44,14 +34,8 @@ endif()
 # Add include directories
 include_directories(${CMAKE_SOURCE_DIR}/shared/include)
 
-# Fetch GLFW from GitHub
-include(FetchContent)
-FetchContent_Declare(
-        glfw
-        GIT_REPOSITORY https://github.com/glfw/glfw.git
-        GIT_TAG 3.4 
-)
-FetchContent_MakeAvailable(glfw)
+# Include local clone of GLFW
+add_subdirectory(external/glfw)
 
 # OpenGL (cross-platform)
 find_package(OpenGL REQUIRED)
